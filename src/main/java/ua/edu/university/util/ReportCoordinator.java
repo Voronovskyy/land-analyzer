@@ -5,21 +5,24 @@ import javafx.scene.image.WritableImage;
 import javafx.scene.web.WebView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import ua.edu.university.model.Coordinate;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 public class ReportCoordinator {
     private static final Logger logger = LoggerFactory.getLogger(ReportCoordinator.class);
-    private static final int SATELLITE_LOAD_DELAY_MS = 2500;
     private static final String TEMP_PATH_SCHEME = "Reports/temp_scheme.png";
     private static final String TEMP_PATH_SATELLITE = "Reports/temp_satellite.png";
+    private static final String TEMP_PATH_TERRAIN = "Reports/temp_terrain.png";
     private final WebView webView;
     private final PdfReportService pdfService;
+    private static final int LOAD_DELAY_MS = 5000;
 
     public ReportCoordinator(WebView webView) {
         this.webView = webView;
@@ -31,53 +34,60 @@ public class ReportCoordinator {
      */
     public void runReportingSequence(String pdfPath, String title, String area,
                                      String priceUah, String priceUsd,
+                                     double elevation, double suitability,
+                                     List<Coordinate> boundaries,
                                      Consumer<String> statusUpdater) {
-
-        // Крок 1: Знімок поточної схеми
         statusUpdater.accept("Підготовка: Знімок схеми...");
         File schemeImg = captureSnapshot(TEMP_PATH_SCHEME);
 
-        // Крок 2: Перемикання шарів на карті
-        statusUpdater.accept("Завантаження супутникових даних...");
-        switchToSatelliteLayer();
+        // Крок 2: Перемикаємо на Рельєф
+        statusUpdater.accept("Завантаження рельєфу (очікування 5 сек)...");
+        webView.getEngine().executeScript("map.removeLayer(osm); terrainGroup.addTo(map);");
 
-        // Крок 3: Асинхронне очікування завантаження тайлів супутника
-        waitAndFinalizeReport(pdfPath, title, area, priceUah, priceUsd, schemeImg, statusUpdater);
+        CompletableFuture.delayedExecutor(LOAD_DELAY_MS, TimeUnit.MILLISECONDS)
+                .execute(() -> Platform.runLater(() -> {
+                    File terrainImg = captureSnapshot(TEMP_PATH_TERRAIN);
+                    // Крок 3: Перемикаємо на Супутник
+                    statusUpdater.accept("Завантаження супутника (очікування 5 сек)...");
+                    webView.getEngine().executeScript("map.removeLayer(terrainGroup); satellite.addTo(map);");
+
+                    waitAndFinalize(pdfPath, title, area, priceUah, priceUsd,
+                            elevation, suitability, boundaries,
+                            schemeImg, terrainImg, statusUpdater);
+                }));
     }
 
-    private void waitAndFinalizeReport(String pdfPath, String title, String area,
-                                       String priceUah, String priceUsd,
-                                       File schemeImg, Consumer<String> statusUpdater) {
+    private void waitAndFinalize(String pdfPath, String title, String area,
+                                 String priceUah, String priceUsd,
+                                 double elevation, double suitability,
+                                 List<Coordinate> boundaries,
+                                 File schemeImg, File terrainImg, Consumer<String> statusUpdater) {
 
-        CompletableFuture.delayedExecutor(SATELLITE_LOAD_DELAY_MS, TimeUnit.MILLISECONDS)
+        CompletableFuture.delayedExecutor(LOAD_DELAY_MS, TimeUnit.MILLISECONDS)
                 .execute(() -> Platform.runLater(() -> {
                     try {
-                        // Крок 4: Знімок супутника
-                        statusUpdater.accept("Фіксація: Знімок супутника...");
+                        statusUpdater.accept("Фіналізація звіту...");
                         File satImg = captureSnapshot(TEMP_PATH_SATELLITE);
 
-                        // Крок 5: Генерація PDF
-                        statusUpdater.accept("Генерація документу PDF...");
-                        pdfService.generateReport(pdfPath, title, area, priceUah, priceUsd, schemeImg, satImg);
+                        pdfService.generateReport(pdfPath, title, area, priceUah, priceUsd,
+                                elevation, suitability, boundaries,
+                                schemeImg, terrainImg, satImg);
 
-                        // Крок 6: Повернення карти до початкового стану та очищення
-                        finalizeProcess(pdfPath, schemeImg, satImg, statusUpdater);
-
+                        finalizeProcess(pdfPath, schemeImg, terrainImg, satImg, statusUpdater);
                     } catch (Exception e) {
-                        logger.error("Помилка під час фіналізації звіту", e);
-                        statusUpdater.accept("Помилка створення звіту!");
+                        logger.error("Finalization error", e);
+                        statusUpdater.accept("Помилка при створенні PDF!");
                     }
                 }));
     }
 
-    private void finalizeProcess(String pdfPath, File img1, File img2, Consumer<String> statusUpdater) {
-        switchToOsmLayer();
+    private void finalizeProcess(String pdfPath, File img1, File img2, File img3, Consumer<String> statusUpdater) {
+        webView.getEngine().executeScript("map.removeLayer(satellite); osm.addTo(map);");
         deleteFile(img1);
         deleteFile(img2);
-
-        File finalPdf = new File(pdfPath);
-        statusUpdater.accept("Звіт готовий: " + finalPdf.getName());
-        autoOpenFile(finalPdf);
+        deleteFile(img3);
+        statusUpdater.accept("Звіт готовий!");
+        autoOpenFile(new File(pdfPath));
     }
 
     private void switchToSatelliteLayer() {

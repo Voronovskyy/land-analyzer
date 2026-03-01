@@ -11,12 +11,14 @@ import com.lowagie.text.pdf.PdfWriter;
 import com.lowagie.text.pdf.draw.LineSeparator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import ua.edu.university.model.Coordinate;
 
 import java.awt.*;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 public class PdfReportService {
     private static final Logger logger = LoggerFactory.getLogger(PdfReportService.class);
@@ -24,7 +26,12 @@ public class PdfReportService {
     private static final Color ACCENT_COLOR = new Color(39, 174, 96); // Зелений
     private static final String FONT_PATH = "C:/Windows/Fonts/arial.ttf";
 
-    public void generateReport(String filePath, String title, String area, String priceUah, String priceUsd, File mapScheme, File mapSat) {
+    public void generateReport(String filePath, String title, String area,
+                               String priceUah, String priceUsd,
+                               double elevation, double suitability,
+                               List<ua.edu.university.model.Coordinate> boundaries,
+                               File mapScheme, File mapTerrain, File mapSat) {
+
         Document document = new Document(PageSize.A4, 40, 40, 50, 40);
         try {
             ensureDirectoryExists(filePath);
@@ -37,12 +44,34 @@ public class PdfReportService {
             Font headerFont = new Font(bf, 12, Font.BOLD, Color.WHITE);
             Font normalFont = new Font(bf, 11, Font.NORMAL);
             Font boldFont = new Font(bf, 11, Font.BOLD);
+            Font italicFont = new Font(bf, 9, Font.ITALIC, Color.GRAY);
 
-            // Будуємо документ по частинах
+            // 1. ПЕРША СТОРІНКА: Титульна частина та Економічні дані
             addHeader(document, bf);
             addTitleSection(document, title, titleFont, normalFont);
-            addDataTable(document, area, priceUah, priceUsd, headerFont, normalFont, boldFont);
-            addVisualsSection(document, mapScheme, mapSat, headerFont, normalFont, bf);
+
+            document.add(new Paragraph("ОСНОВНІ ХАРАКТЕРИСТИКИ ОБ'ЄКТА", new Font(bf, 14, Font.BOLD, MAIN_COLOR)));
+            addDataTable(document, area, priceUah, priceUsd, elevation, suitability, headerFont, normalFont, boldFont);
+
+            // Додаємо першу карту (Схема) внизу першої сторінки
+            addMapToDocument(document, "1. ПЛАН-СХЕМА (OSM LAYER)", mapScheme, normalFont);
+
+            // 2. ДРУГА СТОРІНКА: Гіпсометрична карта (Рельєф)
+            document.newPage();
+            addMapToDocument(document, "2. ГІПСОМЕТРИЧНА КАРТА ТА РЕЛЬЄФ (OPEN-TOPO)", mapTerrain, normalFont);
+            document.add(new Paragraph("Примітка: Карта відображає ізогіпси та тіньовий рельєф для аналізу морфології поверхні.", italicFont));
+
+            // 3. ТРЕТЯ СТОРІНКА: Супутниковий моніторинг
+            document.newPage();
+            addMapToDocument(document, "3. СУПУТНИКОВИЙ МОНІТОРИНГ (ESRI SATELLITE)", mapSat, normalFont);
+            document.add(new Paragraph("Примітка: Візуалізація рослинного покриву та актуального стану землекористування.", italicFont));
+
+            // 4. ЧЕТВЕРТА СТОРІНКА: Технічні координати (якщо вони передані)
+            if (boundaries != null && !boundaries.isEmpty()) {
+                document.newPage();
+                addCoordinatesTable(document, boundaries, headerFont, normalFont);
+            }
+
             addFooter(document, bf);
 
             logger.info("PDF звіт успішно сформовано за шляхом: {}", filePath);
@@ -76,27 +105,60 @@ public class PdfReportService {
         document.add(new Paragraph(" "));
     }
 
-    private void addDataTable(Document document, String area, String priceUah, String priceUsd, Font headerFont, Font normalFont, Font boldFont) throws DocumentException {
+    /**
+     * Універсальний метод для додавання зображення карти в документ
+     */
+    private void addMapToDocument(Document document, String title, File mapFile, Font font) throws Exception {
+        document.add(new Paragraph(" "));
+        document.add(new Paragraph(title, font));
+        document.add(new Paragraph(" "));
+
+        if (mapFile != null && mapFile.exists()) {
+            Image img = Image.getInstance(mapFile.getAbsolutePath());
+            img.scaleToFit(480, 320); // Оптимальний розмір для A4
+            img.setAlignment(Element.ALIGN_CENTER);
+            img.setBorder(Rectangle.BOX);
+            img.setBorderWidth(1f);
+            img.setBorderColor(Color.LIGHT_GRAY);
+            document.add(img);
+        } else {
+            document.add(new Paragraph("[Зображення відсутнє або не завантажене]", new Font(font.getBaseFont(), 10, Font.NORMAL, Color.RED)));
+        }
+    }
+
+    /**
+     * Оновлена таблиця даних, що тепер включає висоту та придатність
+     */
+    private void addDataTable(Document document, String area, String priceUah, String priceUsd,
+                              double elevation, double suitability,
+                              Font headerFont, Font normalFont, Font boldFont) throws DocumentException {
         PdfPTable table = new PdfPTable(2);
         table.setWidthPercentage(100);
         table.setSpacingBefore(10f);
+        table.setSpacingAfter(15f);
 
-        // Заголовки таблиці
-        addStyledCell(table, "ПАРАМЕТР", headerFont, MAIN_COLOR, true);
-        addStyledCell(table, "ЗНАЧЕННЯ", headerFont, MAIN_COLOR, true);
+        // Заголовки
+        addStyledCell(table, "ПАРАМЕТР АНАЛІЗУ", headerFont, MAIN_COLOR, true);
+        addStyledCell(table, "РЕЗУЛЬТАТ", headerFont, MAIN_COLOR, true);
 
         // Дані
-        addStyledCell(table, "Загальна площа об'єкта", normalFont, Color.WHITE, false);
+        addStyledCell(table, "Географічна площа", normalFont, Color.WHITE, false);
         addStyledCell(table, area, boldFont, Color.WHITE, false);
+
+        addStyledCell(table, "Середня висота (н.р.м.)", normalFont, new Color(245, 245, 245), false);
+        addStyledCell(table, String.format("%.1f м", elevation), boldFont, new Color(245, 245, 245), false);
+
+        addStyledCell(table, "Індекс придатності (Suitability)", normalFont, Color.WHITE, false);
+        String suitText = String.format("%.0f%%", suitability * 100);
+        addStyledCell(table, suitText, new Font(boldFont.getBaseFont(), 11, Font.BOLD, ACCENT_COLOR), Color.WHITE, false);
 
         addStyledCell(table, "Оціночна вартість (UAH)", normalFont, new Color(245, 245, 245), false);
         addStyledCell(table, priceUah, boldFont, new Color(245, 245, 245), false);
 
-        addStyledCell(table, "Вартість за курсом НБУ (USD)", normalFont, Color.WHITE, false);
-        addStyledCell(table, priceUsd, new Font(boldFont.getBaseFont(), 11, Font.BOLD, ACCENT_COLOR), Color.WHITE, false);
+        addStyledCell(table, "Вартість за курсом (USD)", normalFont, Color.WHITE, false);
+        addStyledCell(table, priceUsd, boldFont, Color.WHITE, false);
 
         document.add(table);
-        document.add(new Paragraph(" "));
     }
 
     private void addVisualsSection(Document document, File mapScheme, File mapSat, Font headerFont, Font normalFont, BaseFont bf) throws DocumentException, java.io.IOException {
@@ -150,5 +212,30 @@ public class PdfReportService {
         if (parent != null && !parent.exists()) {
             parent.mkdirs();
         }
+    }
+
+    private void addCoordinatesTable(Document document, List<Coordinate> boundaries, Font headerFont, Font normalFont) throws DocumentException {
+        document.newPage();
+        document.add(new Paragraph("ТЕХНІЧНИЙ ДОДАТОК: КООРДИНАТИ МЕЖ", new Font(headerFont.getBaseFont(), 14, Font.BOLD, MAIN_COLOR)));
+        document.add(new Paragraph("Перелік поворотних точок меж земельної ділянки (WGS84):", normalFont));
+        document.add(new Paragraph(" "));
+
+        PdfPTable coordTable = new PdfPTable(3);
+        coordTable.setWidthPercentage(100);
+
+        addStyledCell(coordTable, "№ Точки", headerFont, MAIN_COLOR, true);
+        addStyledCell(coordTable, "Широта (Latitude)", headerFont, MAIN_COLOR, true);
+        addStyledCell(coordTable, "Довгота (Longitude)", headerFont, MAIN_COLOR, true);
+
+        int count = 1;
+        for (ua.edu.university.model.Coordinate point : boundaries) {
+            addStyledCell(coordTable, String.valueOf(count++), normalFont, Color.WHITE, false);
+            addStyledCell(coordTable, String.format("%.6f", point.getLatitude()), normalFont, Color.WHITE, false);
+            addStyledCell(coordTable, String.format("%.6f", point.getLongitude()), normalFont, Color.WHITE, false);
+
+            if (count > 50) break; // Обмежуємо, щоб не було занадто багато сторінок
+        }
+
+        document.add(coordTable);
     }
 }

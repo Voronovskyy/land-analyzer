@@ -12,7 +12,6 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 public class GeoApiService extends BaseApiService {
-
     private static final Logger logger = LoggerFactory.getLogger(GeoApiService.class);
     private final String nominatimUrl;
 
