@@ -55,8 +55,11 @@ public class MapHtmlBuilder {
         html.append("    <script>\n")
                 .append("        var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'OSM' });\n")
                 .append("        var satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri' });\n")
+                .append("        var topo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri Topo' });\n")
+                .append("        var hillshade = L.tileLayer.wms('https://ows.mundialis.de/services/service?', { layers: 'SRTM30-Hillshade', format: 'image/png', transparent: true, opacity: 0.35 });\n")
+                .append("        var terrainGroup = L.layerGroup([topo, hillshade]);\n")
                 .append(String.format(Locale.US, "        var map = L.map('map', { center: [%f, %f], zoom: %d, layers: [osm] });\n", lat, lon, zoom))
-                .append("        L.control.layers({ \"Схема\": osm, \"Супутник\": satellite }).addTo(map);\n");
+                .append("        L.control.layers({ \"Схема\": osm, \"Супутник\": satellite, \"Рельєф\": terrainGroup }).addTo(map);\n");
     }
 
     private static void appendGeoJsonAnalysis(StringBuilder html, String geoJson, double priceUah,

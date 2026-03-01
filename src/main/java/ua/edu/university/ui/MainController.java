@@ -72,8 +72,8 @@ public class MainController {
         String areaText = String.format(Locale.US, "%.4f га", currentArea / 10000);
         String priceUahStr = String.format("%,.2f ₴", lastUahPrice);
         String priceUsdStr = String.format("$%,.0f", lastUsdPrice);
-
         ReportCoordinator coordinator = new ReportCoordinator(mapWebView);
+        reportButton.setDisable(true);
 
         coordinator.runReportingSequence(
                 pdfPath,
@@ -81,10 +81,15 @@ public class MainController {
                 areaText,
                 priceUahStr,
                 priceUsdStr,
-                lastSearchResult.getAverageElevation(), // Висота з моделі
-                lastSearchResult.getSuitabilityScore(),  // Бал з моделі
-                lastSearchResult.getBoundaries(),        // Список точок з моделі
-                status -> Platform.runLater(() -> resultLabel.setText(status))
+                lastSearchResult.getAverageElevation(),
+                lastSearchResult.getSuitabilityScore(),
+                lastSearchResult.getBoundaries(),
+                status -> Platform.runLater(() -> {
+                    resultLabel.setText(status);
+                    if (status.contains("готовий") || status.contains("Помилка")) {
+                        reportButton.setDisable(false);
+                    }
+                })
         );
     }
 
