@@ -30,8 +30,10 @@ public class PdfReportService {
                                String priceUah, String priceUsd,
                                double elevation, double suitability,
                                List<ua.edu.university.model.Coordinate> boundaries,
-                               File mapScheme, File mapTerrain, File mapSat) {
+                               File mapScheme, File mapTerrain, File mapDem,
+                               File mapNdvi, File mapSat) {
 
+        // Встановлюємо формат A4 та стандартні відступи
         Document document = new Document(PageSize.A4, 40, 40, 50, 40);
         try {
             ensureDirectoryExists(filePath);
@@ -41,42 +43,59 @@ public class PdfReportService {
             // Ініціалізація шрифтів
             BaseFont bf = BaseFont.createFont(FONT_PATH, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
             Font titleFont = new Font(bf, 22, Font.BOLD, MAIN_COLOR);
-            Font headerFont = new Font(bf, 12, Font.BOLD, Color.WHITE);
-            Font normalFont = new Font(bf, 11, Font.NORMAL);
+            Font sectionFont = new Font(bf, 16, Font.BOLD, MAIN_COLOR);
             Font boldFont = new Font(bf, 11, Font.BOLD);
+            Font normalFont = new Font(bf, 11, Font.NORMAL);
             Font italicFont = new Font(bf, 9, Font.ITALIC, Color.GRAY);
 
-            // 1. ПЕРША СТОРІНКА: Титульна частина та Економічні дані
+            // --- СТОРІНКА 1: ТИТУЛ ТА ТЕХНІЧНІ ДАНІ ---
             addHeader(document, bf);
             addTitleSection(document, title, titleFont, normalFont);
 
-            document.add(new Paragraph("ОСНОВНІ ХАРАКТЕРИСТИКИ ОБ'ЄКТА", new Font(bf, 14, Font.BOLD, MAIN_COLOR)));
-            addDataTable(document, area, priceUah, priceUsd, elevation, suitability, headerFont, normalFont, boldFont);
+            document.add(new Paragraph("ОСНОВНІ ХАРАКТЕРИСТИКИ ОБ'ЄКТА", sectionFont));
+            document.add(new Paragraph(" ")); // Відступ
 
-            // Додаємо першу карту (Схема) внизу першої сторінки
-            addMapToDocument(document, "1. ПЛАН-СХЕМА (OSM LAYER)", mapScheme, normalFont);
+            // Таблиця з показниками (Площа, Ціна, Висота, Придатність)
+            addDataTable(document, area, priceUah, priceUsd, elevation, suitability,
+                    new Font(bf, 12, Font.BOLD, Color.WHITE), normalFont, boldFont);
 
-            // 2. ДРУГА СТОРІНКА: Гіпсометрична карта (Рельєф)
+            // --- СТОРІНКА 2: КАРТА №1 - СХЕМА ---
             document.newPage();
-            addMapToDocument(document, "2. ГІПСОМЕТРИЧНА КАРТА ТА РЕЛЬЄФ (OPEN-TOPO)", mapTerrain, normalFont);
-            document.add(new Paragraph("Примітка: Карта відображає ізогіпси та тіньовий рельєф для аналізу морфології поверхні.", italicFont));
+            addMapToDocument(document, "1. ГЕОГРАФІЧНЕ РОЗТАШУВАННЯ ТА МЕЖІ", mapScheme, boldFont);
+            document.add(new Paragraph("Візуалізація меж на базі OpenStreetMap. Використовується для ідентифікації під'їзних шляхів та адміністративного положення.", italicFont));
 
-            // 3. ТРЕТЯ СТОРІНКА: Супутниковий моніторинг
+            // --- СТОРІНКА 3: КАРТА №2 - РЕЛЬЄФ ---
             document.newPage();
-            addMapToDocument(document, "3. СУПУТНИКОВИЙ МОНІТОРИНГ (ESRI SATELLITE)", mapSat, normalFont);
-            document.add(new Paragraph("Примітка: Візуалізація рослинного покриву та актуального стану землекористування.", italicFont));
+            addMapToDocument(document, "2. ТОПОГРАФІЧНИЙ РЕЛЬЄФ ТА ГОРИЗОНТАЛІ", mapTerrain, boldFont);
+            document.add(new Paragraph("Карта відображає морфологічні особливості поверхні та перепади висот (ізолінії).", italicFont));
 
-            // 4. ЧЕТВЕРТА СТОРІНКА: Технічні координати (якщо вони передані)
+            // --- СТОРІНКА 4: КАРТА №3 - МОДЕЛЬ ВИСОТ (DEM) ---
+            document.newPage();
+            addMapToDocument(document, "3. ЦИФРОВА МОДЕЛЬ ВИСОТ (SRTM DEM)", mapDem, boldFont);
+            document.add(new Paragraph("Радарна модель висот, що демонструє вертикальну структуру рельєфу ділянки.", italicFont));
+
+            // --- СТОРІНКА 5: КАРТА №4 - ВЕГЕТАЦІЯ (NDVI) ---
+            document.newPage();
+            addMapToDocument(document, "4. СТАН РОСЛИННОСТІ (ІНДЕКС NDVI)", mapNdvi, boldFont);
+            document.add(new Paragraph("Аналіз здоров'я та щільності рослинного покриву на основі даних Sentinel-2.", italicFont));
+
+            // --- СТОРІНКА 6: КАРТА №5 - СУПУТНИК ---
+            document.newPage();
+            addMapToDocument(document, "5. АКТУАЛЬНИЙ СУПУТНИКОВИЙ МОНІТОРИНГ", mapSat, boldFont);
+            document.add(new Paragraph("Знімок високої роздільної здатності для верифікації фактичного стану землекористування.", italicFont));
+
+            // --- СТОРІНКА 7: ТЕХНІЧНИЙ ДОДАТОК (КООРДИНАТИ) ---
             if (boundaries != null && !boundaries.isEmpty()) {
                 document.newPage();
-                addCoordinatesTable(document, boundaries, headerFont, normalFont);
+                document.add(new Paragraph("ТЕХНІЧНИЙ ДОДАТОК: ГЕОДЕЗИЧНІ КООРДИНАТИ", sectionFont));
+                document.add(new Paragraph(" "));
+                addCoordinatesTable(document, boundaries, new Font(bf, 12, Font.BOLD, Color.WHITE), normalFont);
             }
 
             addFooter(document, bf);
 
-            logger.info("PDF звіт успішно сформовано за шляхом: {}", filePath);
         } catch (Exception e) {
-            logger.error("Критична помилка при генерації PDF: {}", e.getMessage(), e);
+            logger.error("Помилка генерації багатосторінкового PDF", e);
         } finally {
             if (document.isOpen()) document.close();
         }

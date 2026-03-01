@@ -12,7 +12,6 @@ public class MapHtmlBuilder {
                                double elevation, double suitability) { // Додано параметри
 
         StringBuilder html = new StringBuilder();
-
         appendHeader(html);
         appendMapContainer(html);
         appendScriptsStart(html, lat, lon, zoom);
@@ -23,10 +22,6 @@ public class MapHtmlBuilder {
 
         appendScriptsEnd(html);
         return html.toString();
-    }
-
-    private static boolean isGeoDataAvailable(String geoJson) {
-        return geoJson != null && !geoJson.isEmpty();
     }
 
     private static void appendHeader(StringBuilder html) {
@@ -53,13 +48,30 @@ public class MapHtmlBuilder {
 
     private static void appendScriptsStart(StringBuilder html, double lat, double lon, int zoom) {
         html.append("    <script>\n")
-                .append("        var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'OSM' });\n")
-                .append("        var satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri' });\n")
-                .append("        var topo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri Topo' });\n")
-                .append("        var hillshade = L.tileLayer.wms('https://ows.mundialis.de/services/service?', { layers: 'SRTM30-Hillshade', format: 'image/png', transparent: true, opacity: 0.35 });\n")
-                .append("        var terrainGroup = L.layerGroup([topo, hillshade]);\n")
+                .append("        var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');\n")
+                .append("        var satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');\n")
+                .append("        var terrainGroup = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}');\n")
+                .append("        var demLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png');\n")
+                .append("        var ndviLayer = L.tileLayer('https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg');\n")
                 .append(String.format(Locale.US, "        var map = L.map('map', { center: [%f, %f], zoom: %d, layers: [osm] });\n", lat, lon, zoom))
-                .append("        L.control.layers({ \"Схема\": osm, \"Супутник\": satellite, \"Рельєф\": terrainGroup }).addTo(map);\n");
+                .append("        function setActiveLayer(newLayer) {\n")
+                .append("            map.eachLayer(function(l) {\n")
+                .append("                if (l !== window.plotLayer && (l._url || (l.options && l.options.layers))) {\n")
+                .append("                    map.removeLayer(l);\n")
+                .append("                }\n")
+                .append("            });\n")
+                .append("            newLayer.addTo(map);\n")
+                .append("            if (window.plotLayer) {\n")
+                .append("                window.plotLayer.bringToFront();\n")
+                .append("            }\n")
+                .append("        }\n")
+                .append("        L.control.layers({\n")
+                .append("            'Схема': osm, \n")
+                .append("            'Супутник': satellite, \n")
+                .append("            'Рельєф': terrainGroup, \n")
+                .append("            'Висоти (DEM)': demLayer, \n")
+                .append("            'Вегетація (NDVI)': ndviLayer \n")
+                .append("        }).addTo(map);\n");
     }
 
     private static void appendGeoJsonAnalysis(StringBuilder html, String geoJson, double priceUah,
@@ -75,7 +87,6 @@ public class MapHtmlBuilder {
                 .append("        var popupContent = `\n")
                 .append("           <b class='popup-title'>Економічний паспорт ділянки</b><hr>\n")
                 .append("           <b>Площа:</b> ${(areaM2/10000).toFixed(4)} га<br>\n")
-                // ОСЬ ТУТ ДОДАЄМО НОВІ РЯДКИ:
                 .append(String.format(Locale.US, "           <b>Висота:</b> %.1f м н.р.м.<br>\n", elevation))
                 .append(String.format(Locale.US, "           <b>Придатність:</b> <span style='color:%s'>%.0f%%</span><br>\n",
                         suitability > 0.7 ? "green" : "orange", suitability * 100))
