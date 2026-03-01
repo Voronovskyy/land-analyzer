@@ -143,6 +143,4 @@ public class MainController {
         searchButton.setDisable(isProcessing);
         addressInputField.setDisable(isProcessing);
     }
-
-
 }
