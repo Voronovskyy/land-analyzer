@@ -1,17 +1,21 @@
 package ua.edu.university.model;
 
-public class Coordinate {
-    private double latitude;
-    private double longitude;
-    private String geoJson;
-    private String source;
-    private int dataYear;
-    private int imageryYear;
-    private double ngoPerSqm;
+import java.util.List;
 
-    public Coordinate(double latitude, double longitude, String geoJson) {
-        this.latitude = latitude;
-        this.longitude = longitude;
+/**
+ * Розширена модель географічної точки та аналітичних даних ділянки.
+ */
+public class Coordinate {
+    private final double latitude;
+    private final double longitude;
+    private final String geoJson;
+    private List<Coordinate> boundaries;
+    private Double averageElevation;
+    private Double suitabilityScore;
+
+    public Coordinate(double lat, double lon, String geoJson) {
+        this.latitude = lat;
+        this.longitude = lon;
         this.geoJson = geoJson;
     }
 
@@ -19,68 +23,41 @@ public class Coordinate {
         return latitude;
     }
 
-    public void setLatitude(double latitude) {
-        this.latitude = latitude;
-    }
-
     public double getLongitude() {
         return longitude;
-    }
-
-    public void setLongitude(double longitude) {
-        this.longitude = longitude;
     }
 
     public String getGeoJson() {
         return geoJson;
     }
 
-    public void setGeoJson(String geoJson) {
-        this.geoJson = geoJson;
+    public List<Coordinate> getBoundaries() {
+        return boundaries;
     }
 
-    public String getSource() {
-        return source;
+    public void setBoundaries(List<Coordinate> boundaries) {
+        this.boundaries = boundaries;
     }
 
-    public void setSource(String source) {
-        this.source = source;
+    public Double getAverageElevation() {
+        return averageElevation;
     }
 
-    public int getDataYear() {
-        return dataYear;
+    public void setAverageElevation(Double averageElevation) {
+        this.averageElevation = averageElevation;
     }
 
-    public void setDataYear(int dataYear) {
-        this.dataYear = dataYear;
+    public Double getSuitabilityScore() {
+        return suitabilityScore;
     }
 
-    public int getImageryYear() {
-        return imageryYear;
-    }
-
-    public void setImageryYear(int imageryYear) {
-        this.imageryYear = imageryYear;
-    }
-
-    public double getNgoPerSqm() {
-        return ngoPerSqm;
-    }
-
-    public void setNgoPerSqm(double ngoPerSqm) {
-        this.ngoPerSqm = ngoPerSqm;
+    public void setSuitabilityScore(Double suitabilityScore) {
+        this.suitabilityScore = suitabilityScore;
     }
 
     @Override
     public String toString() {
-        return "Coordinate{" +
-                "latitude=" + latitude +
-                ", longitude=" + longitude +
-                ", geoJson='" + geoJson + '\'' +
-                ", source='" + source + '\'' +
-                ", dataYear=" + dataYear +
-                ", imageryYear=" + imageryYear +
-                ", ngoPerSqm=" + ngoPerSqm +
-                '}';
+        return String.format("Coordinate{lat=%.6f, lon=%.6f, elevation=%.1f, score=%.2f}",
+                latitude, longitude, averageElevation, suitabilityScore);
     }
 }

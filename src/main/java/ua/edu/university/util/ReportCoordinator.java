@@ -5,10 +5,12 @@ import javafx.scene.image.WritableImage;
 import javafx.scene.web.WebView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import ua.edu.university.model.Coordinate;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -31,36 +33,42 @@ public class ReportCoordinator {
      */
     public void runReportingSequence(String pdfPath, String title, String area,
                                      String priceUah, String priceUsd,
+                                     double elevation, double suitability, // НОВЕ
+                                     List<Coordinate> boundaries,         // НОВЕ
                                      Consumer<String> statusUpdater) {
 
-        // Крок 1: Знімок поточної схеми
         statusUpdater.accept("Підготовка: Знімок схеми...");
         File schemeImg = captureSnapshot(TEMP_PATH_SCHEME);
 
-        // Крок 2: Перемикання шарів на карті
         statusUpdater.accept("Завантаження супутникових даних...");
         switchToSatelliteLayer();
 
-        // Крок 3: Асинхронне очікування завантаження тайлів супутника
-        waitAndFinalizeReport(pdfPath, title, area, priceUah, priceUsd, schemeImg, statusUpdater);
+        // Передаємо нові дані в наступний метод очікування
+        waitAndFinalizeReport(pdfPath, title, area, priceUah, priceUsd,
+                elevation, suitability, boundaries,
+                schemeImg, statusUpdater);
     }
 
     private void waitAndFinalizeReport(String pdfPath, String title, String area,
                                        String priceUah, String priceUsd,
+                                       double elevation, double suitability,
+                                       List<Coordinate> boundaries,
                                        File schemeImg, Consumer<String> statusUpdater) {
 
         CompletableFuture.delayedExecutor(SATELLITE_LOAD_DELAY_MS, TimeUnit.MILLISECONDS)
                 .execute(() -> Platform.runLater(() -> {
                     try {
-                        // Крок 4: Знімок супутника
                         statusUpdater.accept("Фіксація: Знімок супутника...");
                         File satImg = captureSnapshot(TEMP_PATH_SATELLITE);
 
-                        // Крок 5: Генерація PDF
                         statusUpdater.accept("Генерація документу PDF...");
-                        pdfService.generateReport(pdfPath, title, area, priceUah, priceUsd, schemeImg, satImg);
 
-                        // Крок 6: Повернення карти до початкового стану та очищення
+                        pdfService.generateReport(
+                                pdfPath, title, area, priceUah, priceUsd,
+                                elevation, suitability, boundaries,
+                                schemeImg, satImg
+                        );
+
                         finalizeProcess(pdfPath, schemeImg, satImg, statusUpdater);
 
                     } catch (Exception e) {

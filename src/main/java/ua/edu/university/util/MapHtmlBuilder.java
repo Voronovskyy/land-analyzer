@@ -8,7 +8,8 @@ public class MapHtmlBuilder {
      * Формує повний HTML-код для відображення карти з аналітикою ділянки.
      */
     public static String build(double lat, double lon, int zoom, String geoJson,
-                               double priceUah, double priceUsd, double rate) {
+                               double priceUah, double priceUsd, double rate,
+                               double elevation, double suitability) { // Додано параметри
 
         StringBuilder html = new StringBuilder();
 
@@ -16,12 +17,11 @@ public class MapHtmlBuilder {
         appendMapContainer(html);
         appendScriptsStart(html, lat, lon, zoom);
 
-        if (isGeoDataAvailable(geoJson)) {
-            appendGeoJsonAnalysis(html, geoJson, priceUah, priceUsd, rate);
+        if (geoJson != null && !geoJson.isEmpty()) {
+            appendGeoJsonAnalysis(html, geoJson, priceUah, priceUsd, rate, elevation, suitability);
         }
 
         appendScriptsEnd(html);
-
         return html.toString();
     }
 
@@ -59,7 +59,8 @@ public class MapHtmlBuilder {
                 .append("        L.control.layers({ \"Схема\": osm, \"Супутник\": satellite }).addTo(map);\n");
     }
 
-    private static void appendGeoJsonAnalysis(StringBuilder html, String geoJson, double priceUah, double priceUsd, double rate) {
+    private static void appendGeoJsonAnalysis(StringBuilder html, String geoJson, double priceUah,
+                                              double priceUsd, double rate, double elevation, double suitability) {
         String borderColor = ConfigManager.getProperty("plot.color.border");
         String fillColor = ConfigManager.getProperty("plot.color.fill");
         String opacity = ConfigManager.getProperty("plot.opacity");
@@ -71,9 +72,13 @@ public class MapHtmlBuilder {
                 .append("        var popupContent = `\n")
                 .append("           <b class='popup-title'>Економічний паспорт ділянки</b><hr>\n")
                 .append("           <b>Площа:</b> ${(areaM2/10000).toFixed(4)} га<br>\n")
+                // ОСЬ ТУТ ДОДАЄМО НОВІ РЯДКИ:
+                .append(String.format(Locale.US, "           <b>Висота:</b> %.1f м н.р.м.<br>\n", elevation))
+                .append(String.format(Locale.US, "           <b>Придатність:</b> <span style='color:%s'>%.0f%%</span><br>\n",
+                        suitability > 0.7 ? "green" : "orange", suitability * 100))
                 .append(String.format(Locale.US, "           <b>Вартість (UAH):</b> <span class='price-uah'>%,.2f ₴</span><br>\n", priceUah))
                 .append(String.format(Locale.US, "           <b>Вартість (USD):</b> <span class='price-usd'>$%,.0f</span><br>\n", priceUsd))
-                .append(String.format(Locale.US, "           <hr><small>Офіційний курс НБУ: 1$ = %.2f грн</small>`\n", rate))
+                .append(String.format(Locale.US, "           <hr><small>Курс НБУ: 1$ = %.2f грн</small>`\n", rate))
                 .append("        ;\n")
                 .append("        plotLayer.bindPopup(popupContent).openPopup();\n")
                 .append("        map.fitBounds(plotLayer.getBounds());\n");
