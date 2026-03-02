@@ -84,6 +84,8 @@ public class MainController {
                 lastSearchResult.getAverageElevation(),
                 lastSearchResult.getSuitabilityScore(),
                 lastSearchResult.getBoundaries(),
+                lastSearchResult.getLatitude(),
+                lastSearchResult.getLongitude(),
                 status -> Platform.runLater(() -> {
                     resultLabel.setText(status);
                     if (status.contains("готовий") || status.contains("Помилка")) {
