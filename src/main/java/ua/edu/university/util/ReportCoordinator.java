@@ -166,27 +166,25 @@ public class ReportCoordinator {
     }
 
     private void finalizeAll(String path, Consumer<String> statusUpdater, File... files) {
+        // 1. Повертаємо карту до дефолтного стану (про всяк випадок перед виходом)
         Platform.runLater(() -> {
             try {
-                // Безпечний виклик JS: перевіряємо чи функція існує
-                webView.getEngine().executeScript(
-                        "if (typeof showLayer === 'function') { showLayer('osm'); }"
-                );
+                webView.getEngine().executeScript("if (typeof showLayer === 'function') { showLayer('osm'); }");
             } catch (Exception e) {
                 logger.warn("Не вдалося скинути шар карти: {}", e.getMessage());
             }
         });
 
-        // Видаляємо тимчасові скріншоти
+        // 2. Видаляємо тимчасові скріншоти
         for (File f : files) {
             if (f != null && f.exists()) {
-                boolean deleted = f.delete();
-                if (!deleted) logger.warn("Не вдалося видалити тимчасовий файл: {}", f.getName());
+                f.delete();
             }
         }
 
-        statusUpdater.accept("Звіт успішно згенеровано!");
+        statusUpdater.accept("Звіт успішно створено! Програма завершує роботу...");
 
+        // 3. Відкриваємо готовий PDF
         if (Desktop.isDesktopSupported()) {
             try {
                 Desktop.getDesktop().open(new File(path));
@@ -194,5 +192,16 @@ public class ReportCoordinator {
                 logger.error("Не вдалося відкрити PDF", e);
             }
         }
+        // 4. ЗАВЕРШЕННЯ ПРОГРАМИ
+        // Даємо невелику затримку (2 секунди), щоб користувач встиг побачити статус "Успішно"
+        // і щоб PDF-рідер встиг ініціалізувати відкриття файлу
+        new java.util.Timer().schedule(new java.util.TimerTask() {
+            @Override
+            public void run() {
+                logger.info("Генерація завершена. Автоматичне вимкнення системи.");
+                Platform.exit();
+                System.exit(0);
+            }
+        }, 2000);
     }
 }
