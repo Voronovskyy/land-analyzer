@@ -15,6 +15,7 @@ import ua.edu.university.api.GeoApiService;
 import ua.edu.university.model.Coordinate;
 import ua.edu.university.util.*;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
@@ -64,32 +65,25 @@ public class MainController {
             return;
         }
 
-        // Готуємо UI до нового пошуку
         setUIProcessing(true);
         resultLabel.setText("Пошук об'єкта...");
-
-        // Скидаємо старі дані, щоб вони не потрапили в звіт випадково
         this.lastSearchResult = null;
 
         CompletableFuture.supplyAsync(() -> performSearch(input))
                 .thenAccept(coordinate -> Platform.runLater(() -> {
-                    setUIProcessing(false); // Повертаємо доступ до кнопок
-
+                    setUIProcessing(false);
                     if (coordinate != null) {
                         updateUIWithResult(coordinate);
                         resultLabel.setText("Об'єкт знайдено успішно!");
-                        logger.info("Успішний пошук для: {}", input);
                     } else {
-                        // ОБРОБКА ПОМИЛКИ
-                        resultLabel.setText("Помилка: Об'єкт не знайдено. Спробуйте інший запит.");
-                        addressInputField.requestFocus(); // Повертаємо фокус для нової спроби
-                        logger.warn("Об'єкт не знайдено за запитом: {}", input);
+                        resultLabel.setText("Помилка: Об'єкт не знайдено.");
+                        addressInputField.requestFocus();
                     }
                 }))
                 .exceptionally(ex -> {
                     Platform.runLater(() -> {
                         setUIProcessing(false);
-                        resultLabel.setText("Сталася системна помилка при пошуку.");
+                        resultLabel.setText("Сталася системна помилка.");
                     });
                     return null;
                 });
@@ -97,14 +91,60 @@ public class MainController {
 
     @FXML
     private void handleGenerateReport() {
-        if (lastSearchResult == null) return;
+        // 1. Перевірка наявності результатів пошуку
+        if (lastSearchResult == null) {
+            resultLabel.setText("Помилка: Спочатку знайдіть об'єкт на карті");
+            return;
+        }
+
+        // 2. ПІДГОТОВКА ДАНИХ МЕЖ (Критично для 3D моделі)
+        List<Coordinate> boundaries = lastSearchResult.getBoundaries();
+
+        // Якщо список меж порожній, намагаємось витягти їх з GeoJSON
+        if ((boundaries == null || boundaries.isEmpty()) && lastSearchResult.getGeoJson() != null) {
+            logger.info("Спроба отримати межі з GeoJSON...");
+            boundaries = parseGeoJsonToCoordinates(lastSearchResult.getGeoJson());
+            lastSearchResult.setBoundaries(boundaries);
+        }
+
+        // Якщо меж все одно немає (API повернуло лише точку), створюємо технічний квадрат
+        if (boundaries == null || boundaries.isEmpty()) {
+            logger.warn("Геометрія відсутня. Створення технічного полігону навколо центру.");
+            double lat = lastSearchResult.getLatitude();
+            double lon = lastSearchResult.getLongitude();
+            double offset = 0.0006; // ~60-70 метрів для візуалізації
+
+            boundaries = java.util.List.of(
+                    new Coordinate(lat + offset, lon - offset),
+                    new Coordinate(lat + offset, lon + offset),
+                    new Coordinate(lat - offset, lon + offset),
+                    new Coordinate(lat - offset, lon - offset)
+            );
+            lastSearchResult.setBoundaries(boundaries);
+        }
+
+        // 3. МИТТЄВА ВІЗУАЛІЗАЦІЯ (Відкриття 3D вікна в UI потоці)
+        final List<Coordinate> finalBoundaries = boundaries;
         String input = addressInputField.getText().trim();
+
+        Platform.runLater(() -> {
+            try {
+                Land3DView.show(finalBoundaries, lastSearchResult.getAverageElevation(), input);
+            } catch (Exception e) {
+                logger.error("Не вдалося відкрити вікно візуалізації: ", e);
+            }
+        });
+
+        // 4. ЗАПУСК ГЕНЕРАЦІЇ PDF ЗВІТУ
+        reportButton.setDisable(true);
         String pdfPath = FileUtil.generateReportPath(input);
+
+        // Форматування даних для звіту
         String areaText = String.format(Locale.US, "%.4f га", currentArea / 10000);
         String priceUahStr = String.format("%,.2f ₴", lastUahPrice);
         String priceUsdStr = String.format("$%,.0f", lastUsdPrice);
+
         ReportCoordinator coordinator = new ReportCoordinator(mapWebView);
-        reportButton.setDisable(true);
 
         coordinator.runReportingSequence(
                 pdfPath,
@@ -114,7 +154,7 @@ public class MainController {
                 priceUsdStr,
                 lastSearchResult.getAverageElevation(),
                 lastSearchResult.getSuitabilityScore(),
-                lastSearchResult.getBoundaries(),
+                finalBoundaries,
                 lastSearchResult.getLatitude(),
                 lastSearchResult.getLongitude(),
                 status -> Platform.runLater(() -> {
@@ -126,6 +166,31 @@ public class MainController {
         );
     }
 
+    /**
+     * Допоміжний метод для швидкого парсингу GeoJSON без сторонніх бібліотек.
+     * Підходить для PhD модуля, де потрібна швидка обробка стандартних полігонів.
+     */
+    private List<Coordinate> parseGeoJsonToCoordinates(String geoJson) {
+        List<Coordinate> coords = new java.util.ArrayList<>();
+        try {
+            // Знаходимо масив координат у рядку GeoJSON
+            String searchPattern = "\"coordinates\":[[[";
+            if (geoJson.contains(searchPattern)) {
+                String rawCoords = geoJson.split("\\[\\[\\[")[1].split("\\]\\]\\]")[0];
+                String[] pairs = rawCoords.split("\\],\\[");
+                for (String pair : pairs) {
+                    String[] parts = pair.replace("[", "").replace("]", "").split(",");
+                    double lon = Double.parseDouble(parts[0]);
+                    double lat = Double.parseDouble(parts[1]);
+                    coords.add(new Coordinate(lat, lon));
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Помилка парсингу GeoJSON: {}", e.getMessage());
+        }
+        return coords;
+    }
+
     private Coordinate performSearch(String input) {
         try {
             if (input.matches("\\d{10}:\\d{2}:\\d{3}:\\d{4}")) {
@@ -134,7 +199,7 @@ public class MainController {
                 return geoApiService.getCoordinates(input);
             }
         } catch (Exception e) {
-            logger.error("Помилка під час виконання пошукового запиту", e);
+            logger.error("Помилка під час пошуку", e);
             return null;
         }
     }
@@ -142,26 +207,20 @@ public class MainController {
     private void updateUIWithResult(ua.edu.university.model.Coordinate coordinate) {
         if (coordinate != null) {
             this.lastSearchResult = coordinate;
-
-            // Розрахунок площі (якщо немає GeoJSON - ставимо 0 або дефолт)
             this.currentArea = (coordinate.getGeoJson() != null)
                     ? GeoAnalysisUtil.calculateAreaFromGeoJson(coordinate.getGeoJson())
                     : 0.0;
 
-            // Отримання висоти
             double elevation = elevationApiService.getElevation(coordinate.getLatitude(), coordinate.getLongitude());
             coordinate.setAverageElevation(elevation);
 
-            // Оцінка придатності
             double score = (elevation >= 200 && elevation <= 450) ? 0.95 : 0.65;
             coordinate.setSuitabilityScore(score);
 
-            // Розрахунок цін
             this.lastRate = exchangeRateService.getCurrentUsdRate();
             this.lastUahPrice = LandAnalysisService.calculateUahPrice(currentArea);
             this.lastUsdPrice = LandAnalysisService.calculateUsdPrice(lastUahPrice, lastRate);
 
-            // ПОВНЕ ПЕРЕЗАВАНТАЖЕННЯ КАРТИ (скидає старі маркери та полігони)
             loadMap(
                     coordinate.getLatitude(),
                     coordinate.getLongitude(),

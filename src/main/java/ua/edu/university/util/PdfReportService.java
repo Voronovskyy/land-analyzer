@@ -4,16 +4,13 @@ import com.lowagie.text.*;
 import com.lowagie.text.Font;
 import com.lowagie.text.Image;
 import com.lowagie.text.Rectangle;
-import com.lowagie.text.pdf.BaseFont;
-import com.lowagie.text.pdf.PdfPCell;
-import com.lowagie.text.pdf.PdfPTable;
-import com.lowagie.text.pdf.PdfWriter;
+import com.lowagie.text.pdf.*;
 import com.lowagie.text.pdf.draw.LineSeparator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ua.edu.university.model.Coordinate;
 
-import java.awt.*;
+import java.awt.Color;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.time.LocalDateTime;
@@ -29,7 +26,7 @@ public class PdfReportService {
 
     /**
      * ГОЛОВНИЙ МЕТОД ГЕНЕРАЦІЇ ЗВІТУ
-     * Тепер приймає Map<String, String> aiAnalyses для вставки текстів від Gemini
+     * @param map3d - файл зі скріншотом 3D моделі з JavaFX SubScene
      */
     public void generateReport(String filePath, String title, String area,
                                String priceUah, String priceUsd,
@@ -37,12 +34,14 @@ public class PdfReportService {
                                List<ua.edu.university.model.Coordinate> boundaries,
                                File mapScheme, File mapTerrain, File mapDem,
                                File mapNdvi, File mapSat,
-                               Map<String, String> aiAnalyses) { // Додано параметр аналітики
+                               File map3d, // Новий аргумент для 3D скріншота
+                               Map<String, String> aiAnalyses) {
 
         Document document = new Document(PageSize.A4, 40, 40, 50, 40);
         try {
             ensureDirectoryExists(filePath);
-            PdfWriter.getInstance(document, new FileOutputStream(filePath));
+            FileOutputStream fos = new FileOutputStream(filePath);
+            PdfWriter.getInstance(document, fos);
             document.open();
 
             // Ініціалізація шрифтів
@@ -51,7 +50,8 @@ public class PdfReportService {
             Font sectionFont = new Font(bf, 16, Font.BOLD, MAIN_COLOR);
             Font boldFont = new Font(bf, 11, Font.BOLD);
             Font normalFont = new Font(bf, 11, Font.NORMAL);
-            Font aiTextFont = new Font(bf, 10, Font.NORMAL, new Color(50, 50, 50)); // Шрифт для ШІ
+            Font aiTextFont = new Font(bf, 10, Font.NORMAL, new Color(50, 50, 50));
+            Font italicFont = new Font(bf, 8, Font.ITALIC, Color.GRAY);
 
             // --- СТОРІНКА 1: ТИТУЛ ТА ТЕХНІЧНІ ДАНІ ---
             addHeader(document, bf);
@@ -60,37 +60,37 @@ public class PdfReportService {
             document.add(new Paragraph("ОСНОВНІ ХАРАКТЕРИСТИКИ ОБ'ЄКТА", sectionFont));
             document.add(new Paragraph(" "));
 
+            // 1. Таблиця даних
             addDataTable(document, area, priceUah, priceUsd, elevation, suitability,
                     new Font(bf, 12, Font.BOLD, Color.WHITE), normalFont, boldFont);
 
+            // 2. ВСТАВКА 3D МОДЕЛІ (Snapshot з JavaFX)
+            if (map3d != null && map3d.exists()) {
+                add3DModelToPdf(document, map3d, italicFont);
+            }
+
             // --- СЕРІЯ СТОРІНОК З КАРТАМИ ТА АНАЛІЗОМ GEMINI ---
-
-            // 1. ПЛАН-СХЕМА + ІНФРАСТРУКТУРА
             addMapPageWithAiAnalysis(document, "1. ГЕОГРАФІЧНЕ РОЗТАШУВАННЯ ТА ІНФРАСТРУКТУРА",
-                    mapScheme, aiAnalyses.getOrDefault("INFRASTRUCTURE", "Аналіз інфраструктури недоступний."),
+                    mapScheme, aiAnalyses.getOrDefault("INFRASTRUCTURE", "Аналіз недоступний."),
                     boldFont, aiTextFont);
 
-            // 2. РЕЛЬЄФ + ГЕОМОРФОЛОГІЯ
             addMapPageWithAiAnalysis(document, "2. ТОПОГРАФІЧНИЙ РЕЛЬЄФ ТА МОРФОЛОГІЯ",
-                    mapTerrain, aiAnalyses.getOrDefault("TERRAIN", "Аналіз рельєфу недоступний."),
+                    mapTerrain, aiAnalyses.getOrDefault("TERRAIN", "Аналіз недоступний."),
                     boldFont, aiTextFont);
 
-            // 3. МОДЕЛЬ ВИСОТ + ГІДРОЛОГІЯ
             addMapPageWithAiAnalysis(document, "3. ЦИФРОВА МОДЕЛЬ ВИСОТ (DEM ANALYTICS)",
-                    mapDem, aiAnalyses.getOrDefault("DEM", "Гідрологічний аналіз недоступний."),
+                    mapDem, aiAnalyses.getOrDefault("DEM", "Аналіз недоступний."),
                     boldFont, aiTextFont);
 
-            // 4. ВЕГЕТАЦІЯ + ЕКОЛОГІЯ
             addMapPageWithAiAnalysis(document, "4. СТАН РОСЛИННОСТІ (NDVI MONITORING)",
-                    mapNdvi, aiAnalyses.getOrDefault("NDVI", "Екологічний моніторинг недоступний."),
+                    mapNdvi, aiAnalyses.getOrDefault("NDVI", "Аналіз недоступний."),
                     boldFont, aiTextFont);
 
-            // 5. СУПУТНИК + РЕТРОСПЕКТИВА
             addMapPageWithAiAnalysis(document, "5. СУПУТНИКОВИЙ МОНІТОРИНГ ТА ДИНАМІКА",
-                    mapSat, aiAnalyses.getOrDefault("RETROSPECTIVE", "Ретроспективний аналіз недоступний."),
+                    mapSat, aiAnalyses.getOrDefault("RETROSPECTIVE", "Аналіз недоступний."),
                     boldFont, aiTextFont);
 
-            // --- СТОРІНКА 7: ТЕХНІЧНИЙ ДОДАТОК (КООРДИНАТИ) ---
+            // --- ДОДАТОК З КООРДИНАТИМИ ---
             if (boundaries != null && !boundaries.isEmpty()) {
                 addCoordinatesTable(document, boundaries, new Font(bf, 12, Font.BOLD, Color.WHITE), normalFont);
             }
@@ -105,15 +105,32 @@ public class PdfReportService {
     }
 
     /**
-     * ДОПОМІЖНИЙ МЕТОД: Сторінка з картою та блоком аналізу ШІ
+     * Вставка готового скріншота 3D моделі
      */
+    private void add3DModelToPdf(Document document, File map3d, Font labelFont) throws Exception {
+        Image img = Image.getInstance(map3d.getAbsolutePath());
+        img.scaleToFit(400, 200);
+        img.setAlignment(Element.ALIGN_CENTER);
+
+        // Візуальне оформлення рамки
+        img.setBorder(Rectangle.BOX);
+        img.setBorderWidth(0.5f);
+        img.setBorderColor(Color.LIGHT_GRAY);
+
+        document.add(new Paragraph("\n"));
+        document.add(img);
+
+        Paragraph label = new Paragraph("Рис 1. Об'ємна геодезична модель ділянки (Isometry Projection)", labelFont);
+        label.setAlignment(Element.ALIGN_CENTER);
+        document.add(label);
+    }
+
     private void addMapPageWithAiAnalysis(Document doc, String title, File mapFile,
                                           String aiText, Font titleFont, Font textFont) throws Exception {
         doc.newPage();
         doc.add(new Paragraph(title, titleFont));
         doc.add(new Paragraph(" "));
 
-        // Вставка зображення (скріншота)
         if (mapFile != null && mapFile.exists()) {
             Image img = Image.getInstance(mapFile.getAbsolutePath());
             img.scaleToFit(500, 310);
@@ -126,21 +143,17 @@ public class PdfReportService {
 
         doc.add(new Paragraph(" "));
 
-        // Блок аналітики ШІ (сіра рамка)
         PdfPTable aiBox = new PdfPTable(1);
         aiBox.setWidthPercentage(100);
-
         PdfPCell cell = new PdfPCell();
         cell.setPadding(10);
         cell.setBackgroundColor(new Color(245, 247, 249));
         cell.setBorderColor(new Color(200, 200, 200));
 
-        // Заголовок блоку ШІ
         Paragraph head = new Paragraph("ЕКСПЕРТНИЙ ВИСНОВОК GEMINI 3 FLASH:",
                 new Font(titleFont.getBaseFont(), 9, Font.BOLD, ACCENT_COLOR));
         cell.addElement(head);
 
-        // Текст від ШІ
         Paragraph content = new Paragraph(aiText, textFont);
         content.setAlignment(Element.ALIGN_JUSTIFIED);
         cell.addElement(content);

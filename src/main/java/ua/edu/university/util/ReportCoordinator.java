@@ -1,6 +1,8 @@
 package ua.edu.university.util;
 
 import javafx.application.Platform;
+import javafx.scene.SceneAntialiasing;
+import javafx.scene.SubScene;
 import javafx.scene.image.WritableImage;
 import javafx.scene.web.WebView;
 import org.slf4j.Logger;
@@ -8,7 +10,6 @@ import org.slf4j.LoggerFactory;
 import ua.edu.university.model.Coordinate;
 
 import javax.imageio.ImageIO;
-import java.awt.*;
 import java.io.File;
 import java.util.HashMap;
 import java.util.List;
@@ -26,14 +27,12 @@ public class ReportCoordinator {
     private static final String TEMP_PATH_DEM = "Reports/temp_dem.png";
     private static final String TEMP_PATH_NDVI = "Reports/temp_ndvi.png";
     private static final String TEMP_PATH_SATELLITE = "Reports/temp_satellite.png";
+    private static final String TEMP_PATH_3D = "Reports/temp_3d_wireframe.png"; // Шлях для 3D моделі
 
     private final WebView webView;
     private final PdfReportService pdfService;
     private final GeminiAnalysisService geminiService;
     private final Map<String, String> aiAnalyses = new HashMap<>();
-
-    // Час очікування провантаження тайлів карти (мс)
-    private static final int RENDER_DELAY_MS = 1500;
 
     public ReportCoordinator(WebView webView) {
         this.webView = webView;
@@ -45,57 +44,59 @@ public class ReportCoordinator {
                                      String priceUah, String priceUsd,
                                      double elevation, double suitability,
                                      List<Coordinate> boundaries,
-                                     double lat, double lon, // Координати для ШІ
+                                     double lat, double lon,
                                      Consumer<String> statusUpdater) {
 
         aiAnalyses.clear();
 
-        // Запускаємо ланцюжок у фоновому потоці, щоб не блокувати UI JavaFX
         CompletableFuture.runAsync(() -> {
             try {
-                // КРОК 1: ПЛАН-СХЕМА + ІНФРАСТРУКТУРА
-                updateStatus(statusUpdater, "1/5: Аналіз інфраструктури (Gemini)...");
+                // КРОК 1: ПЛАН-СХЕМА
+                updateStatus(statusUpdater, "1/6: Аналіз інфраструктури (Gemini)...");
                 aiAnalyses.put("INFRASTRUCTURE", geminiService.getInfrastructureAnalysis(lat, lon));
                 File imgScheme = captureSnapshotSync(TEMP_PATH_SCHEME);
 
-                // КРОК 2: РЕЛЬЄФ + ГЕОМОРФОЛОГІЯ
-                updateStatus(statusUpdater, "2/5: Аналіз рельєфу (Gemini)...");
+                // КРОК 2: РЕЛЬЄФ
+                updateStatus(statusUpdater, "2/6: Аналіз рельєфу (Gemini)...");
                 aiAnalyses.put("TERRAIN", geminiService.getTerrainAnalysis(lat, lon));
                 syncLayerChange("terrainGroup");
                 File imgTerrain = captureSnapshotSync(TEMP_PATH_TERRAIN);
 
-                // КРОК 3: МОДЕЛЬ ВИСОТ + ГІДРОЛОГІЯ
-                updateStatus(statusUpdater, "3/5: Модель висот (Gemini)...");
+                // КРОК 3: МОДЕЛЬ ВИСОТ
+                updateStatus(statusUpdater, "3/6: Модель висот (Gemini)...");
                 aiAnalyses.put("DEM", geminiService.getDemAnalysis(lat, lon));
                 syncLayerChange("demLayer");
                 File imgDem = captureSnapshotSync(TEMP_PATH_DEM);
 
-                // КРОК 4: ВЕГЕТАЦІЯ + ЕКОЛОГІЯ
-                updateStatus(statusUpdater, "4/5: Індекс вегетації (Gemini)...");
+                // КРОК 4: ВЕГЕТАЦІЯ
+                updateStatus(statusUpdater, "4/6: Індекс вегетації (Gemini)...");
                 aiAnalyses.put("NDVI", geminiService.getNdviAnalysis(lat, lon));
                 syncLayerChange("ndviLayer");
                 File imgNdvi = captureSnapshotSync(TEMP_PATH_NDVI);
 
-                // КРОК 5: СУПУТНИК + РЕТРОСПЕКТИВА
-                updateStatus(statusUpdater, "5/5: Ретроспективний аналіз (Gemini)...");
+                // КРОК 5: СУПУТНИК
+                updateStatus(statusUpdater, "5/6: Ретроспективний аналіз (Gemini)...");
                 aiAnalyses.put("RETROSPECTIVE", geminiService.getSatelliteRetrospective(lat, lon));
                 syncLayerChange("satellite");
                 File imgSat = captureSnapshotSync(TEMP_PATH_SATELLITE);
 
+                // КРОК 6: ГЕНЕРАЦІЯ СПРАВЖНЬОЇ 3D ВІЗУАЛІЗАЦІЇ
+                updateStatus(statusUpdater, "6/6: Створення об'ємної моделі ділянки...");
+                File img3d = capture3DModelSnapshot(boundaries, elevation);
+
                 // ФІНАЛЬНИЙ ЕТАП: ЗБІРКА PDF
                 updateStatus(statusUpdater, "Збірка фінального PDF звіту...");
-
-                // Перевірка на наявність усіх відповідей ШІ
                 validateAnalyses();
 
                 Platform.runLater(() -> {
                     try {
+                        // Передаємо всі файли, включаючи img3d
                         pdfService.generateReport(pdfPath, title, area, priceUah, priceUsd,
                                 elevation, suitability, boundaries,
                                 imgScheme, imgTerrain, imgDem, imgNdvi, imgSat,
-                                aiAnalyses);
+                                img3d, aiAnalyses);
 
-                        finalizeAll(pdfPath, statusUpdater, imgScheme, imgTerrain, imgDem, imgNdvi, imgSat);
+                        finalizeAll(pdfPath, statusUpdater, imgScheme, imgTerrain, imgDem, imgNdvi, imgSat, img3d);
                     } catch (Exception e) {
                         logger.error("Помилка фіналізації PDF", e);
                         statusUpdater.accept("Помилка створення PDF!");
@@ -109,41 +110,59 @@ public class ReportCoordinator {
         });
     }
 
-    private void syncLayerChange(String layerVarName) throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
+    /**
+     * Створює 3D модель за допомогою LandParcel3dVisualizer і робить скріншот
+     */
+    private File capture3DModelSnapshot(List<Coordinate> boundaries, double elevation) throws Exception {
+        CompletableFuture<File> future = new CompletableFuture<>();
 
         Platform.runLater(() -> {
             try {
-                // Виклик JS для зміни шару
-                webView.getEngine().executeScript("showLayer('" + layerVarName + "');");
+                // Створюємо Canvas
+                javafx.scene.canvas.Canvas canvas = LandParcel3dVisualizer.create3dPlot(boundaries, elevation, 500, 300);
 
-                // ВАЖЛИВО: Пауза в UI-потоці на 2 секунди, щоб карта встигла завантажити тайли
-                javafx.animation.PauseTransition pause = new javafx.animation.PauseTransition(javafx.util.Duration.seconds(2));
+                if (canvas == null) {
+                    future.complete(null);
+                    return;
+                }
+
+                // Робимо Snapshot (Canvas завжди рендериться миттєво)
+                WritableImage image = canvas.snapshot(null, null);
+
+                File file = new File(TEMP_PATH_3D);
+                file.getParentFile().mkdirs();
+
+                javax.imageio.ImageIO.write(javafx.embed.swing.SwingFXUtils.fromFXImage(image, null), "png", file);
+                future.complete(file);
+                logger.info("3D-інфографіка успішно збережена.");
+            } catch (Exception e) {
+                future.completeExceptionally(e);
+            }
+        });
+        return future.get();
+    }
+
+    private void syncLayerChange(String layerVarName) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            try {
+                webView.getEngine().executeScript("showLayer('" + layerVarName + "');");
+                javafx.animation.PauseTransition pause = new javafx.animation.PauseTransition(javafx.util.Duration.seconds(2.0));
                 pause.setOnFinished(event -> latch.countDown());
                 pause.play();
-
             } catch (Exception e) {
-                logger.error("Помилка JS при зміні шару: {}", e.getMessage());
                 latch.countDown();
             }
         });
-
-        // Блокуємо фоновий потік, поки UI-потік не відрахує 2 секунди
-        if (!latch.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
-            logger.warn("Таймаут очікування рендерингу шару: {}", layerVarName);
-        }
+        latch.await();
     }
 
-    /**
-     * Робить знімок у потоці JavaFX і чекає на результат
-     */
     private File captureSnapshotSync(String path) throws Exception {
         CompletableFuture<File> future = new CompletableFuture<>();
         Platform.runLater(() -> {
             try {
                 WritableImage image = webView.snapshot(null, null);
                 File file = new File(path);
-                // Створюємо папку, якщо її немає
                 file.getParentFile().mkdirs();
                 ImageIO.write(javafx.embed.swing.SwingFXUtils.fromFXImage(image, null), "png", file);
                 future.complete(file);
@@ -166,42 +185,23 @@ public class ReportCoordinator {
     }
 
     private void finalizeAll(String path, Consumer<String> statusUpdater, File... files) {
-        // 1. Повертаємо карту до дефолтного стану (про всяк випадок перед виходом)
-        Platform.runLater(() -> {
-            try {
-                webView.getEngine().executeScript("if (typeof showLayer === 'function') { showLayer('osm'); }");
-            } catch (Exception e) {
-                logger.warn("Не вдалося скинути шар карти: {}", e.getMessage());
-            }
-        });
+        // Очистка темпів
+        for (File f : files) { if (f != null && f.exists()) f.delete(); }
 
-        // 2. Видаляємо тимчасові скріншоти
-        for (File f : files) {
-            if (f != null && f.exists()) {
-                f.delete();
-            }
-        }
+        statusUpdater.accept("Готово! Звіт відкрито. Програма завершує роботу...");
 
-        statusUpdater.accept("Звіт успішно створено! Програма завершує роботу...");
+        // Відкриваємо PDF
+        try { java.awt.Desktop.getDesktop().open(new File(path)); } catch (Exception e) {}
 
-        // 3. Відкриваємо готовий PDF
-        if (Desktop.isDesktopSupported()) {
-            try {
-                Desktop.getDesktop().open(new File(path));
-            } catch (Exception e) {
-                logger.error("Не вдалося відкрити PDF", e);
-            }
-        }
-        // 4. ЗАВЕРШЕННЯ ПРОГРАМИ
-        // Даємо невелику затримку (2 секунди), щоб користувач встиг побачити статус "Успішно"
-        // і щоб PDF-рідер встиг ініціалізувати відкриття файлу
+        // ТАЙМЕР ВИХОДУ
         new java.util.Timer().schedule(new java.util.TimerTask() {
             @Override
             public void run() {
-                logger.info("Генерація завершена. Автоматичне вимкнення системи.");
-                Platform.exit();
-                System.exit(0);
+                Platform.runLater(() -> {
+                    logger.info("Автоматичне закриття системи.");
+                    System.exit(0);
+                });
             }
-        }, 2000);
+        }, 3000); // 3 секунди
     }
 }

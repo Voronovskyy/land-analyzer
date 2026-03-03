@@ -103,21 +103,31 @@ public class MapHtmlBuilder {
     private static void appendHelperFunctions(StringBuilder html) {
         html.append("\n        // Головна функція перемикання для звітів\n")
                 .append("        function showLayer(layerKey) {\n")
-                .append("            // 1. Видаляємо всі базові шари\n")
                 .append("            Object.values(layers).forEach(l => { if(map.hasLayer(l)) map.removeLayer(l); });\n")
-                .append("\n            // 2. Додаємо вибраний шар\n")
-                .append("            if (layers[layerKey]) {\n")
-                .append("                layers[layerKey].addTo(map);\n")
-                .append("            }\n")
-                .append("\n            // 3. Завжди тримаємо межі ділянки зверху\n")
+                .append("            if (layers[layerKey]) { layers[layerKey].addTo(map); }\n")
                 .append("            if (window.plotLayer) window.plotLayer.bringToFront();\n")
-                .append("            if (window.manualLayer) window.manualLayer.bringToFront();\n")
                 .append("        }\n")
-                .append("\n        // Функція для ручного малювання полігону (4 точки)\n")
-                .append("        function drawManualPolygon(coords) {\n")
-                .append("            if (window.manualLayer) map.removeLayer(window.manualLayer);\n")
-                .append("            window.manualLayer = L.polygon(coords, {color: '#e74c3c', weight: 3, fillOpacity: 0.3}).addTo(map);\n")
-                .append("            map.fitBounds(window.manualLayer.getBounds());\n")
+
+                .append("\n        // НОВА ФУНКЦІЯ ДЛЯ 3D ВІЗУАЛІЗАЦІЇ\n")
+                .append("        function show3DView() {\n")
+                .append("            if (window.plotLayer) {\n")
+                .append("                map.invalidateSize();\n") // Оновлюємо розмір карти перед трансформацією
+                .append("                map.fitBounds(window.plotLayer.getBounds());\n")
+                .append("                var mapElement = document.getElementById('map');\n")
+                .append("                mapElement.style.transition = 'all 1.2s ease-in-out';\n") // Додаємо плавний перехід
+                .append("                mapElement.style.transform = 'perspective(1000px) rotateX(45deg) rotateZ(-15deg) scale(0.8)';\n")
+                .append("                mapElement.style.boxShadow = '0 30px 60px rgba(0,0,0,0.5)';\n")
+                .append("                mapElement.style.borderRadius = '20px';\n")
+                .append("            }\n")
+                .append("        }\n")
+
+                .append("\n        // Скидання 3D вигляду до звичайного\n")
+                .append("        function reset3DView() {\n")
+                .append("            var mapElement = document.getElementById('map');\n")
+                .append("            mapElement.style.transform = 'none';\n")
+                .append("            mapElement.style.boxShadow = 'none';\n")
+                .append("            mapElement.style.borderRadius = '0';\n")
+                .append("            map.invalidateSize();\n")
                 .append("        }\n");
     }
 
