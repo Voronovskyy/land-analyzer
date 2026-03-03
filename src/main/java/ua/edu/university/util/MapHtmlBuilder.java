@@ -47,17 +47,29 @@ public class MapHtmlBuilder {
                 .append("        var terrainGroup = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}');\n")
                 .append("        var demLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png');\n")
                 .append("        var ndviLayer = L.tileLayer('https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg');\n")
-                .append(String.format(Locale.US, "        var map = L.map('map', { center: [%f, %f], zoom: %d, layers: [osm], zoomControl: false });\n", lat, lon, zoom))
-                .append("        var layers = {\n")
-                .append("            'osm': osm, \n")
-                .append("            'satellite': satellite, \n")
-                .append("            'terrainGroup': terrainGroup, \n")
-                .append("            'demLayer': demLayer, \n")
-                .append("            'ndviLayer': ndviLayer \n")
-                .append("        };\n")
-                .append("        var manualLayer = null;\n");
-    }
 
+                // Ініціалізація карти з активним шаром OSM
+                .append(String.format(Locale.US, "        var map = L.map('map', { center: [%f, %f], zoom: %d, layers: [osm] });\n", lat, lon, zoom))
+
+                // Реєструємо шари в глобальному об'єкті для доступу з Java
+                .append("        var layers = {\n")
+                .append("            'osm': osm,\n")
+                .append("            'satellite': satellite,\n")
+                .append("            'terrainGroup': terrainGroup,\n")
+                .append("            'demLayer': demLayer,\n")
+                .append("            'ndviLayer': ndviLayer\n")
+                .append("        };\n")
+
+                // Додаємо стандартний перемикач (Control.Layers), щоб користувач міг клікати мишкою
+                .append("        var baseMaps = {\n")
+                .append("            'Схема': osm,\n")
+                .append("            'Супутник': satellite,\n")
+                .append("            'Рельєф': terrainGroup,\n")
+                .append("            'Висоти (DEM)': demLayer,\n")
+                .append("            'Вегетація (NDVI)': ndviLayer\n")
+                .append("        };\n")
+                .append("        L.control.layers(baseMaps).addTo(map);\n");
+    }
     private static void appendGeoJsonAnalysis(StringBuilder html, String geoJson, double priceUah,
                                               double priceUsd, double rate, double elevation, double suitability) {
         String borderColor = ConfigManager.getProperty("plot.color.border");

@@ -49,19 +49,50 @@ public class MainController {
         int defZoom = ConfigManager.getIntProperty("map.default.zoom");
         double initialRate = exchangeRateService.getCurrentUsdRate();
         loadMap(defLat, defLon, defZoom, null, 0.0, 0.0, initialRate, 0.0, 0.0);
+        addressInputField.setOnKeyPressed(event -> {
+            if (event.getCode() == javafx.scene.input.KeyCode.ENTER) {
+                handleSearch();
+            }
+        });
     }
 
-    /**
-     * Головний метод пошуку. Розділений на логіку запиту та логіку оновлення UI.
-     */
     @FXML
     private void handleSearch() {
         String input = addressInputField.getText().trim();
-        if (input.isEmpty()) return;
+        if (input.isEmpty()) {
+            resultLabel.setText("Будь ласка, введіть адресу або кадастровий номер");
+            return;
+        }
+
+        // Готуємо UI до нового пошуку
         setUIProcessing(true);
         resultLabel.setText("Пошук об'єкта...");
+
+        // Скидаємо старі дані, щоб вони не потрапили в звіт випадково
+        this.lastSearchResult = null;
+
         CompletableFuture.supplyAsync(() -> performSearch(input))
-                .thenAccept(coordinate -> Platform.runLater(() -> updateUIWithResult(coordinate)));
+                .thenAccept(coordinate -> Platform.runLater(() -> {
+                    setUIProcessing(false); // Повертаємо доступ до кнопок
+
+                    if (coordinate != null) {
+                        updateUIWithResult(coordinate);
+                        resultLabel.setText("Об'єкт знайдено успішно!");
+                        logger.info("Успішний пошук для: {}", input);
+                    } else {
+                        // ОБРОБКА ПОМИЛКИ
+                        resultLabel.setText("Помилка: Об'єкт не знайдено. Спробуйте інший запит.");
+                        addressInputField.requestFocus(); // Повертаємо фокус для нової спроби
+                        logger.warn("Об'єкт не знайдено за запитом: {}", input);
+                    }
+                }))
+                .exceptionally(ex -> {
+                    Platform.runLater(() -> {
+                        setUIProcessing(false);
+                        resultLabel.setText("Сталася системна помилка при пошуку.");
+                    });
+                    return null;
+                });
     }
 
     @FXML
@@ -108,20 +139,29 @@ public class MainController {
         }
     }
 
-    private void updateUIWithResult(Coordinate coordinate) {
+    private void updateUIWithResult(ua.edu.university.model.Coordinate coordinate) {
         if (coordinate != null) {
             this.lastSearchResult = coordinate;
-            this.currentArea = GeoAnalysisUtil.calculateAreaFromGeoJson(coordinate.getGeoJson());
+
+            // Розрахунок площі (якщо немає GeoJSON - ставимо 0 або дефолт)
+            this.currentArea = (coordinate.getGeoJson() != null)
+                    ? GeoAnalysisUtil.calculateAreaFromGeoJson(coordinate.getGeoJson())
+                    : 0.0;
+
+            // Отримання висоти
             double elevation = elevationApiService.getElevation(coordinate.getLatitude(), coordinate.getLongitude());
             coordinate.setAverageElevation(elevation);
 
-            // 3. Розрахунок придатності (Suitability)
-            // Логіка: лісові культури найкраще ростуть на висотах 200-400м
-            double score = (elevation >= 200 && elevation <= 450) ? 0.9 : 0.6;
+            // Оцінка придатності
+            double score = (elevation >= 200 && elevation <= 450) ? 0.95 : 0.65;
             coordinate.setSuitabilityScore(score);
+
+            // Розрахунок цін
             this.lastRate = exchangeRateService.getCurrentUsdRate();
             this.lastUahPrice = LandAnalysisService.calculateUahPrice(currentArea);
             this.lastUsdPrice = LandAnalysisService.calculateUsdPrice(lastUahPrice, lastRate);
+
+            // ПОВНЕ ПЕРЕЗАВАНТАЖЕННЯ КАРТИ (скидає старі маркери та полігони)
             loadMap(
                     coordinate.getLatitude(),
                     coordinate.getLongitude(),
@@ -130,8 +170,8 @@ public class MainController {
                     lastUahPrice,
                     lastUsdPrice,
                     lastRate,
-                    coordinate.getAverageElevation() != null ? coordinate.getAverageElevation() : 0.0,
-                    coordinate.getSuitabilityScore() != null ? coordinate.getSuitabilityScore() : 0.0
+                    coordinate.getAverageElevation(),
+                    coordinate.getSuitabilityScore()
             );
         }
     }
