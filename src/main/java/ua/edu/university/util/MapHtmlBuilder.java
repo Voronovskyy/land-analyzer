@@ -1,10 +1,13 @@
 package ua.edu.university.util;
 
+import ua.edu.university.model.Coordinate;
+import java.util.List;
 import java.util.Locale;
 
 public class MapHtmlBuilder {
 
     public static String build(double lat, double lon, int zoom, String geoJson,
+                               List<Coordinate> boundaries,
                                double priceUah, double priceUsd, double rate,
                                double elevation, double suitability) {
 
@@ -15,9 +18,11 @@ public class MapHtmlBuilder {
 
         if (geoJson != null && !geoJson.isEmpty()) {
             appendGeoJsonAnalysis(html, geoJson, priceUah, priceUsd, rate, elevation, suitability);
+        } else if (boundaries != null && !boundaries.isEmpty()) {
+            appendManualBoundariesAnalysis(html, boundaries, priceUah, priceUsd, rate, elevation, suitability);
         }
 
-        appendHelperFunctions(html); // Додаємо допоміжні JS-функції
+        appendHelperFunctions(html);
         appendScriptsEnd(html);
         return html.toString();
     }
@@ -31,7 +36,8 @@ public class MapHtmlBuilder {
                 .append("    <style>\n")
                 .append("        body { padding: 0; margin: 0; overflow: hidden; }\n")
                 .append("        #map { height: 100vh; width: 100vw; transition: all 0.5s ease; }\n")
-                .append("        .popup-title { color: #c0392b; font-size: 14px; font-family: Arial; }\n")
+                // Червоний колір заголовка в попапі
+                .append("        .popup-title { color: #e74c3c; font-size: 14px; font-family: Arial; font-weight: bold; }\n")
                 .append("    </style>\n")
                 .append("</head>\n");
     }
@@ -46,88 +52,73 @@ public class MapHtmlBuilder {
                 .append("        var satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');\n")
                 .append("        var terrainGroup = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}');\n")
                 .append("        var demLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png');\n")
-                .append("        var ndviLayer = L.tileLayer('https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg');\n")
 
-                // Ініціалізація карти з активним шаром OSM
                 .append(String.format(Locale.US, "        var map = L.map('map', { center: [%f, %f], zoom: %d, layers: [osm] });\n", lat, lon, zoom))
 
-                // Реєструємо шари в глобальному об'єкті для доступу з Java
-                .append("        var layers = {\n")
-                .append("            'osm': osm,\n")
-                .append("            'satellite': satellite,\n")
-                .append("            'terrainGroup': terrainGroup,\n")
-                .append("            'demLayer': demLayer,\n")
-                .append("            'ndviLayer': ndviLayer\n")
-                .append("        };\n")
-
-                // Додаємо стандартний перемикач (Control.Layers), щоб користувач міг клікати мишкою
-                .append("        var baseMaps = {\n")
-                .append("            'Схема': osm,\n")
-                .append("            'Супутник': satellite,\n")
-                .append("            'Рельєф': terrainGroup,\n")
-                .append("            'Висоти (DEM)': demLayer,\n")
-                .append("            'Вегетація (NDVI)': ndviLayer\n")
-                .append("        };\n")
+                .append("        var layers = {'osm': osm, 'satellite': satellite, 'terrainGroup': terrainGroup, 'demLayer': demLayer};\n")
+                .append("        var baseMaps = {'Схема': osm, 'Супутник': satellite, 'Рельєф': terrainGroup, 'Висоти (DEM)': demLayer};\n")
                 .append("        L.control.layers(baseMaps).addTo(map);\n");
     }
+
+    /**
+     * ОНОВЛЕНО: Червоні кольори для ручного введення
+     */
+    private static void appendManualBoundariesAnalysis(StringBuilder html, List<Coordinate> boundaries,
+                                                       double priceUah, double priceUsd, double rate,
+                                                       double elevation, double suitability) {
+
+        StringBuilder pts = new StringBuilder("[");
+        for (Coordinate c : boundaries) {
+            pts.append(String.format(Locale.US, "[%f, %f],", c.getLatitude(), c.getLongitude()));
+        }
+        pts.append("]");
+
+        html.append("        var manualPoints = ").append(pts).append(";\n")
+                // Зміна кольору на червоний (#e74c3c - лінія, #c0392b - заливка)
+                .append("        var polygon = L.polygon(manualPoints, {color: '#e74c3c', fillColor: '#c0392b', weight: 3, fillOpacity: 0.5}).addTo(map);\n")
+                .append("        window.plotLayer = polygon;\n")
+                .append("        var areaM2 = turf.area(polygon.toGeoJSON());\n")
+                .append("        var popupContent = `\n")
+                .append("           <div style='min-width: 200px; font-family: Arial;'>\n")
+                .append("           <b class='popup-title'>Польовий паспорт ділянки</b><hr style='margin: 5px 0;'>\n")
+                .append("           <b>Площа:</b> ${(areaM2/10000).toFixed(4)} га<br>\n")
+                .append(String.format(Locale.US, "           <b>Висота:</b> %.1f м<br>\n", elevation))
+                .append(String.format(Locale.US, "           <b>Придатність:</b> <span style='color:green;'>%.0f%%</span><br>\n", suitability * 100))
+                .append(String.format(Locale.US, "           <b style='color: #27ae60;'>Оцінка:</b> %,.2f ₴<br>\n", priceUah))
+                .append(String.format(Locale.US, "           <b style='color: #2980b9;'>Оцінка:</b> $%,.0f<br>\n", priceUsd))
+                .append("           <hr style='margin: 2px 0;'><small>Джерело: GPS вимірювання</small></div>`;\n")
+                .append("        polygon.bindPopup(popupContent).openPopup();\n")
+                .append("        map.fitBounds(polygon.getBounds());\n");
+    }
+
+    /**
+     * ОНОВЛЕНО: Червоні кольори для GeoJSON
+     */
     private static void appendGeoJsonAnalysis(StringBuilder html, String geoJson, double priceUah,
                                               double priceUsd, double rate, double elevation, double suitability) {
-        String borderColor = ConfigManager.getProperty("plot.color.border");
-        String fillColor = ConfigManager.getProperty("plot.color.fill");
-        String opacity = ConfigManager.getProperty("plot.opacity");
-
         html.append("        var geojsonData = ").append(geoJson).append(";\n")
                 .append("        var areaM2 = turf.area(geojsonData);\n")
-                .append(String.format(Locale.US, "        var plotLayer = L.geoJSON(geojsonData, { style: {color: '%s', fillColor: '%s', weight: 3, fillOpacity: %s} }).addTo(map);\n",
-                        borderColor, fillColor, opacity))
+                // Зміна кольору на червоний (#e74c3c - лінія, #c0392b - заливка)
+                .append("        var plotLayer = L.geoJSON(geojsonData, { style: {color: '#e74c3c', fillColor: '#c0392b', weight: 3, fillOpacity: 0.4} }).addTo(map);\n")
                 .append("        window.plotLayer = plotLayer;\n")
                 .append("        var popupContent = `\n")
                 .append("           <div style='min-width: 200px; font-family: Arial;'>\n")
-                .append("           <b class='popup-title' style='color: #c0392b; font-size: 14px;'>Економічний паспорт ділянки</b><hr style='margin: 5px 0;'>\n")
+                .append("           <b class='popup-title'>Економічний паспорт (ДЗК)</b><hr style='margin: 5px 0;'>\n")
                 .append("           <b>Площа:</b> ${(areaM2/10000).toFixed(4)} га<br>\n")
-                .append(String.format(Locale.US, "           <b>Висота:</b> %.1f м н.р.м.<br>\n", elevation))
-                .append(String.format(Locale.US, "           <b>Придатність:</b> <span style='color:%s; font-weight: bold;'>%.0f%%</span><br>\n",
-                        suitability > 0.7 ? "green" : "orange", suitability * 100))
+                .append(String.format(Locale.US, "           <b>Висота:</b> %.1f м<br>\n", elevation))
+                .append(String.format(Locale.US, "           <b>Придатність:</b> <b>%.0f%%</b><br>\n", suitability * 100))
                 .append(String.format(Locale.US, "           <b style='color: #27ae60;'>Вартість:</b> %,.2f ₴<br>\n", priceUah))
                 .append(String.format(Locale.US, "           <b style='color: #2980b9;'>Вартість:</b> $%,.0f<br>\n", priceUsd))
-                .append(String.format(Locale.US, "           <hr style='margin: 5px 0;'><small style='color: gray;'>Курс НБУ: 1$ = %.2f грн</small>\n", rate))
-                .append("           </div>` ;\n")
-
+                .append("           </div>`;\n")
                 .append("        plotLayer.bindPopup(popupContent).openPopup();\n")
                 .append("        map.fitBounds(plotLayer.getBounds());\n");
     }
 
-    /**
-     * НОВІ ФУНКЦІЇ ДЛЯ КЕРУВАННЯ З JAVA
-     */
     private static void appendHelperFunctions(StringBuilder html) {
-        html.append("\n        // Головна функція перемикання для звітів\n")
-                .append("        function showLayer(layerKey) {\n")
+        html.append("\n        function showLayer(layerKey) {\n")
                 .append("            Object.values(layers).forEach(l => { if(map.hasLayer(l)) map.removeLayer(l); });\n")
                 .append("            if (layers[layerKey]) { layers[layerKey].addTo(map); }\n")
                 .append("            if (window.plotLayer) window.plotLayer.bringToFront();\n")
-                .append("        }\n")
-
-                .append("\n        // НОВА ФУНКЦІЯ ДЛЯ 3D ВІЗУАЛІЗАЦІЇ\n")
-                .append("        function show3DView() {\n")
-                .append("            if (window.plotLayer) {\n")
-                .append("                map.invalidateSize();\n") // Оновлюємо розмір карти перед трансформацією
-                .append("                map.fitBounds(window.plotLayer.getBounds());\n")
-                .append("                var mapElement = document.getElementById('map');\n")
-                .append("                mapElement.style.transition = 'all 1.2s ease-in-out';\n") // Додаємо плавний перехід
-                .append("                mapElement.style.transform = 'perspective(1000px) rotateX(45deg) rotateZ(-15deg) scale(0.8)';\n")
-                .append("                mapElement.style.boxShadow = '0 30px 60px rgba(0,0,0,0.5)';\n")
-                .append("                mapElement.style.borderRadius = '20px';\n")
-                .append("            }\n")
-                .append("        }\n")
-
-                .append("\n        // Скидання 3D вигляду до звичайного\n")
-                .append("        function reset3DView() {\n")
-                .append("            var mapElement = document.getElementById('map');\n")
-                .append("            mapElement.style.transform = 'none';\n")
-                .append("            mapElement.style.boxShadow = 'none';\n")
-                .append("            mapElement.style.borderRadius = '0';\n")
-                .append("            map.invalidateSize();\n")
                 .append("        }\n");
     }
 
