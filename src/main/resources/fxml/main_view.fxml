@@ -7,6 +7,7 @@
 <?import javafx.scene.layout.*?>
 <?import javafx.scene.text.Font?>
 <?import javafx.scene.web.WebView?>
+
 <VBox alignment="TOP_CENTER" spacing="15.0" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1"
       fx:controller="ua.edu.university.ui.MainController">
 
@@ -22,8 +23,14 @@
 
     <HBox spacing="10" alignment="CENTER_LEFT">
         <TextField fx:id="addressInputField" promptText="Адреса або кадастровий номер..." HBox.hgrow="ALWAYS" />
-        <Button fx:id="searchButton" text="Пошук" onAction="#handleSearch" style="-fx-base: #2ecc71; -fx-text-fill: white;"/>
-        <Button fx:id="reportButton" text="Звіт (PDF)" onAction="#handleGenerateReport" style="-fx-base: #3498db; -fx-text-fill: white;"/>
+        <Button fx:id="searchButton" text="Пошук" onAction="#handleSearch"
+                style="-fx-base: #2ecc71; -fx-text-fill: white; -fx-cursor: hand;"/>
+
+        <Button fx:id="visualizeButton" text="3D Модель" onAction="#handleShowVisualization"
+                style="-fx-base: #f39c12; -fx-text-fill: white; -fx-cursor: hand;"/>
+
+        <Button fx:id="reportButton" text="Звіт (PDF)" onAction="#handleGenerateReport"
+                style="-fx-base: #3498db; -fx-text-fill: white; -fx-cursor: hand;"/>
     </HBox>
 
     <Label fx:id="resultLabel" text="Введіть дані для початку аналізу" textFill="#7f8c8d">

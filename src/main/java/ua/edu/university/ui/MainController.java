@@ -89,57 +89,43 @@ public class MainController {
                 });
     }
 
+    /**
+     * НОВИЙ МЕТОД: Тільки для візуалізації об'єкта в окремому вікні
+     */
     @FXML
-    private void handleGenerateReport() {
-        // 1. Перевірка наявності результатів пошуку
+    private void handleShowVisualization() {
         if (lastSearchResult == null) {
-            resultLabel.setText("Помилка: Спочатку знайдіть об'єкт на карті");
+            resultLabel.setText("Спочатку знайдіть об'єкт на карті");
             return;
         }
 
-        // 2. ПІДГОТОВКА ДАНИХ МЕЖ (Критично для 3D моделі)
-        List<Coordinate> boundaries = lastSearchResult.getBoundaries();
-
-        // Якщо список меж порожній, намагаємось витягти їх з GeoJSON
-        if ((boundaries == null || boundaries.isEmpty()) && lastSearchResult.getGeoJson() != null) {
-            logger.info("Спроба отримати межі з GeoJSON...");
-            boundaries = parseGeoJsonToCoordinates(lastSearchResult.getGeoJson());
-            lastSearchResult.setBoundaries(boundaries);
-        }
-
-        // Якщо меж все одно немає (API повернуло лише точку), створюємо технічний квадрат
-        if (boundaries == null || boundaries.isEmpty()) {
-            logger.warn("Геометрія відсутня. Створення технічного полігону навколо центру.");
-            double lat = lastSearchResult.getLatitude();
-            double lon = lastSearchResult.getLongitude();
-            double offset = 0.0006; // ~60-70 метрів для візуалізації
-
-            boundaries = java.util.List.of(
-                    new Coordinate(lat + offset, lon - offset),
-                    new Coordinate(lat + offset, lon + offset),
-                    new Coordinate(lat - offset, lon + offset),
-                    new Coordinate(lat - offset, lon - offset)
-            );
-            lastSearchResult.setBoundaries(boundaries);
-        }
-
-        // 3. МИТТЄВА ВІЗУАЛІЗАЦІЯ (Відкриття 3D вікна в UI потоці)
-        final List<Coordinate> finalBoundaries = boundaries;
+        // Готуємо координати (та сама логіка з GeoJSON або квадратом)
+        List<Coordinate> boundaries = prepareBoundaries();
         String input = addressInputField.getText().trim();
 
         Platform.runLater(() -> {
             try {
-                Land3DView.show(finalBoundaries, lastSearchResult.getAverageElevation(), input);
+                logger.info("Відкриття вікна 3D візуалізації...");
+                Land3DView.show(boundaries, lastSearchResult.getAverageElevation(), input);
             } catch (Exception e) {
-                logger.error("Не вдалося відкрити вікно візуалізації: ", e);
+                logger.error("Помилка візуалізації: ", e);
             }
         });
+    }
 
-        // 4. ЗАПУСК ГЕНЕРАЦІЇ PDF ЗВІТУ
+    /**
+     * ОНОВЛЕНИЙ МЕТОД ГЕНЕРАЦІЇ: Тепер тільки звіт
+     */
+    @FXML
+    private void handleGenerateReport() {
+        if (lastSearchResult == null) return;
+
+        String input = addressInputField.getText().trim();
+        List<Coordinate> boundaries = prepareBoundaries(); // Отримуємо ті ж дані для PDF
+
         reportButton.setDisable(true);
         String pdfPath = FileUtil.generateReportPath(input);
 
-        // Форматування даних для звіту
         String areaText = String.format(Locale.US, "%.4f га", currentArea / 10000);
         String priceUahStr = String.format("%,.2f ₴", lastUahPrice);
         String priceUsdStr = String.format("$%,.0f", lastUsdPrice);
@@ -154,7 +140,7 @@ public class MainController {
                 priceUsdStr,
                 lastSearchResult.getAverageElevation(),
                 lastSearchResult.getSuitabilityScore(),
-                finalBoundaries,
+                boundaries,
                 lastSearchResult.getLatitude(),
                 lastSearchResult.getLongitude(),
                 status -> Platform.runLater(() -> {
@@ -164,6 +150,32 @@ public class MainController {
                     }
                 })
         );
+    }
+
+    /**
+     * Винесена спільна логіка підготовки меж, щоб не дублювати код
+     */
+    private List<Coordinate> prepareBoundaries() {
+        List<Coordinate> boundaries = lastSearchResult.getBoundaries();
+
+        if ((boundaries == null || boundaries.isEmpty()) && lastSearchResult.getGeoJson() != null) {
+            boundaries = parseGeoJsonToCoordinates(lastSearchResult.getGeoJson());
+            lastSearchResult.setBoundaries(boundaries);
+        }
+
+        if (boundaries == null || boundaries.isEmpty()) {
+            double lat = lastSearchResult.getLatitude();
+            double lon = lastSearchResult.getLongitude();
+            double offset = 0.0006;
+            boundaries = java.util.List.of(
+                    new Coordinate(lat + offset, lon - offset),
+                    new Coordinate(lat + offset, lon + offset),
+                    new Coordinate(lat - offset, lon + offset),
+                    new Coordinate(lat - offset, lon - offset)
+            );
+            lastSearchResult.setBoundaries(boundaries);
+        }
+        return boundaries;
     }
 
     /**
