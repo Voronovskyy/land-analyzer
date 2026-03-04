@@ -115,18 +115,36 @@ public class MainController {
     private void handleGenerateReport() {
         if (lastSearchResult == null) return;
 
+        // 1. Перевірка режиму ШІ з конфігурації
+        boolean isAiEnabled = ConfigManager.getBooleanProperty("analysis.ai.enabled");
+
         String input = addressInputField.getText().trim();
         List<Coordinate> boundaries = prepareBoundaries();
         reportButton.setDisable(true);
+
+        // Візуальний фідбек для користувача
+        if (!isAiEnabled) {
+            resultLabel.setText("Генерація технічного звіту (ШІ вимкнено)...");
+            logger.info("Генерація звіту розпочата в автономному режимі (AI disabled).");
+        } else {
+            resultLabel.setText("Підготовка інтелектуального звіту Gemini...");
+            logger.info("Генерація звіту розпочата з використанням ШІ (AI enabled).");
+        }
 
         String pdfPath = FileUtil.generateReportPath(input);
         String areaText = String.format(Locale.US, "%.4f га", currentArea / 10000);
         String priceUahStr = String.format("%,.2f ₴", lastUahPrice);
         String priceUsdStr = String.format("$%,.0f", lastUsdPrice);
 
+        // Створюємо координатор та запускаємо послідовність
         ReportCoordinator coordinator = new ReportCoordinator(mapWebView);
+
         coordinator.runReportingSequence(
-                pdfPath, input, areaText, priceUahStr, priceUsdStr,
+                pdfPath,
+                input,
+                areaText,
+                priceUahStr,
+                priceUsdStr,
                 lastSearchResult.getAverageElevation(),
                 lastSearchResult.getSuitabilityScore(),
                 boundaries,
@@ -134,7 +152,8 @@ public class MainController {
                 lastSearchResult.getLongitude(),
                 status -> Platform.runLater(() -> {
                     resultLabel.setText(status);
-                    if (status.contains("готовий") || status.contains("Помилка")) {
+                    // Якщо звіт готовий або сталася помилка — розблоковуємо кнопку
+                    if (status.contains("готовий") || status.contains("Помилка") || status.contains("Збій")) {
                         reportButton.setDisable(false);
                     }
                 })

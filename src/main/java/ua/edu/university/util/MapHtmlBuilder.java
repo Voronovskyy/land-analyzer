@@ -36,7 +36,6 @@ public class MapHtmlBuilder {
                 .append("    <style>\n")
                 .append("        body { padding: 0; margin: 0; overflow: hidden; }\n")
                 .append("        #map { height: 100vh; width: 100vw; transition: all 0.5s ease; }\n")
-                // Червоний колір заголовка в попапі
                 .append("        .popup-title { color: #e74c3c; font-size: 14px; font-family: Arial; font-weight: bold; }\n")
                 .append("    </style>\n")
                 .append("</head>\n");
@@ -52,21 +51,33 @@ public class MapHtmlBuilder {
                 .append("        var satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');\n")
                 .append("        var terrainGroup = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}');\n")
                 .append("        var demLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png');\n")
+                // ПОВЕРТАЄМО NDVI ШАР
+                .append("        var ndviLayer = L.tileLayer('https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg');\n")
 
                 .append(String.format(Locale.US, "        var map = L.map('map', { center: [%f, %f], zoom: %d, layers: [osm] });\n", lat, lon, zoom))
 
-                .append("        var layers = {'osm': osm, 'satellite': satellite, 'terrainGroup': terrainGroup, 'demLayer': demLayer};\n")
-                .append("        var baseMaps = {'Схема': osm, 'Супутник': satellite, 'Рельєф': terrainGroup, 'Висоти (DEM)': demLayer};\n")
+                // РЕЄСТРУЄМО ВСІ ШАРИ ДЛЯ ВИКЛИКУ З JAVA (showLayer)
+                .append("        var layers = {\n")
+                .append("            'osm': osm,\n")
+                .append("            'satellite': satellite,\n")
+                .append("            'terrainGroup': terrainGroup,\n")
+                .append("            'demLayer': demLayer,\n")
+                .append("            'ndviLayer': ndviLayer\n")
+                .append("        };\n")
+
+                .append("        var baseMaps = {\n")
+                .append("            'Схема': osm,\n")
+                .append("            'Супутник': satellite,\n")
+                .append("            'Рельєф': terrainGroup,\n")
+                .append("            'Висоти (DEM)': demLayer,\n")
+                .append("            'Рослинність (NDVI)': ndviLayer\n")
+                .append("        };\n")
                 .append("        L.control.layers(baseMaps).addTo(map);\n");
     }
 
-    /**
-     * ОНОВЛЕНО: Червоні кольори для ручного введення
-     */
     private static void appendManualBoundariesAnalysis(StringBuilder html, List<Coordinate> boundaries,
                                                        double priceUah, double priceUsd, double rate,
                                                        double elevation, double suitability) {
-
         StringBuilder pts = new StringBuilder("[");
         for (Coordinate c : boundaries) {
             pts.append(String.format(Locale.US, "[%f, %f],", c.getLatitude(), c.getLongitude()));
@@ -74,41 +85,31 @@ public class MapHtmlBuilder {
         pts.append("]");
 
         html.append("        var manualPoints = ").append(pts).append(";\n")
-                // Зміна кольору на червоний (#e74c3c - лінія, #c0392b - заливка)
                 .append("        var polygon = L.polygon(manualPoints, {color: '#e74c3c', fillColor: '#c0392b', weight: 3, fillOpacity: 0.5}).addTo(map);\n")
                 .append("        window.plotLayer = polygon;\n")
                 .append("        var areaM2 = turf.area(polygon.toGeoJSON());\n")
                 .append("        var popupContent = `\n")
                 .append("           <div style='min-width: 200px; font-family: Arial;'>\n")
-                .append("           <b class='popup-title'>Польовий паспорт ділянки</b><hr style='margin: 5px 0;'>\n")
+                .append("           <b class='popup-title'>Польовий паспорт</b><hr style='margin: 5px 0;'>\n")
                 .append("           <b>Площа:</b> ${(areaM2/10000).toFixed(4)} га<br>\n")
                 .append(String.format(Locale.US, "           <b>Висота:</b> %.1f м<br>\n", elevation))
-                .append(String.format(Locale.US, "           <b>Придатність:</b> <span style='color:green;'>%.0f%%</span><br>\n", suitability * 100))
                 .append(String.format(Locale.US, "           <b style='color: #27ae60;'>Оцінка:</b> %,.2f ₴<br>\n", priceUah))
-                .append(String.format(Locale.US, "           <b style='color: #2980b9;'>Оцінка:</b> $%,.0f<br>\n", priceUsd))
-                .append("           <hr style='margin: 2px 0;'><small>Джерело: GPS вимірювання</small></div>`;\n")
+                .append("           <hr style='margin: 2px 0;'><small>Джерело: GPS (Польові виміри)</small></div>`;\n")
                 .append("        polygon.bindPopup(popupContent).openPopup();\n")
                 .append("        map.fitBounds(polygon.getBounds());\n");
     }
 
-    /**
-     * ОНОВЛЕНО: Червоні кольори для GeoJSON
-     */
     private static void appendGeoJsonAnalysis(StringBuilder html, String geoJson, double priceUah,
                                               double priceUsd, double rate, double elevation, double suitability) {
         html.append("        var geojsonData = ").append(geoJson).append(";\n")
-                .append("        var areaM2 = turf.area(geojsonData);\n")
-                // Зміна кольору на червоний (#e74c3c - лінія, #c0392b - заливка)
-                .append("        var plotLayer = L.geoJSON(geojsonData, { style: {color: '#e74c3c', fillColor: '#c0392b', weight: 3, fillOpacity: 0.4} }).addTo(map);\n")
+                .append("        var plotLayer = L.geoJson(geojsonData, { style: {color: '#e74c3c', fillColor: '#c0392b', weight: 3, fillOpacity: 0.4} }).addTo(map);\n")
                 .append("        window.plotLayer = plotLayer;\n")
+                .append("        var areaM2 = turf.area(geojsonData);\n")
                 .append("        var popupContent = `\n")
                 .append("           <div style='min-width: 200px; font-family: Arial;'>\n")
                 .append("           <b class='popup-title'>Економічний паспорт (ДЗК)</b><hr style='margin: 5px 0;'>\n")
                 .append("           <b>Площа:</b> ${(areaM2/10000).toFixed(4)} га<br>\n")
-                .append(String.format(Locale.US, "           <b>Висота:</b> %.1f м<br>\n", elevation))
-                .append(String.format(Locale.US, "           <b>Придатність:</b> <b>%.0f%%</b><br>\n", suitability * 100))
-                .append(String.format(Locale.US, "           <b style='color: #27ae60;'>Вартість:</b> %,.2f ₴<br>\n", priceUah))
-                .append(String.format(Locale.US, "           <b style='color: #2980b9;'>Вартість:</b> $%,.0f<br>\n", priceUsd))
+                .append(String.format(Locale.US, "           <b>Вартість:</b> %,.2f ₴<br>\n", priceUah))
                 .append("           </div>`;\n")
                 .append("        plotLayer.bindPopup(popupContent).openPopup();\n")
                 .append("        map.fitBounds(plotLayer.getBounds());\n");
@@ -117,7 +118,10 @@ public class MapHtmlBuilder {
     private static void appendHelperFunctions(StringBuilder html) {
         html.append("\n        function showLayer(layerKey) {\n")
                 .append("            Object.values(layers).forEach(l => { if(map.hasLayer(l)) map.removeLayer(l); });\n")
-                .append("            if (layers[layerKey]) { layers[layerKey].addTo(map); }\n")
+                .append("            if (layers[layerKey]) {\n")
+                .append("                layers[layerKey].addTo(map);\n")
+                .append("                console.log('Layer switched to: ' + layerKey);\n")
+                .append("            }\n")
                 .append("            if (window.plotLayer) window.plotLayer.bringToFront();\n")
                 .append("        }\n");
     }

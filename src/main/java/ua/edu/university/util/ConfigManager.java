@@ -33,4 +33,9 @@ public class ConfigManager {
     public static int getIntProperty(String key) {
         return Integer.parseInt(properties.getProperty(key));
     }
+
+    public static boolean getBooleanProperty(String key) {
+        String value = getProperty(key);
+        return Boolean.parseBoolean(value);
+    }
 }
