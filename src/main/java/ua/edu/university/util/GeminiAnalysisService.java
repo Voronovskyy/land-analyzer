@@ -6,98 +6,106 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Сервіс інтелектуального аналізу територій за допомогою Google Gemini.
- * Додано розширене логування запитів для PhD моніторингу.
+ * Сервіс інтелектуального мультимодального аналізу територій.
+ * Використовує нейронні мережі Google Gemini для генерації експертних висновків
+ * у сферах урбаністики, геоморфології, гідрології та екології.
  */
 public class GeminiAnalysisService {
     private static final Logger logger = LoggerFactory.getLogger(GeminiAnalysisService.class);
     private final Client client;
-    private static final String MODEL = "gemini-3-flash-preview";
 
+    /**
+     * Конструктор ініціалізує клієнта Google GenAI.
+     */
     public GeminiAnalysisService() {
         this.client = new Client();
     }
 
-    // 1. Для ПЛАН-СХЕМИ (Інфраструктура)
+    /**
+     * Виконує аналіз інфраструктури та комфорту проживання.
+     */
     public String getInfrastructureAnalysis(double lat, double lon) {
-        String prompt = String.format(
-                "Ти урбаніст. Проаналізуй район %f, %f. Опиши транспортну доступність, " +
-                        "наявність ТЦ, шкіл та лікарень у радіусі 3 км. Оціни комфорт проживання. " +
-                        "Українською, до 5 речень.", lat, lon
-        );
+        String prompt = buildPrompt("Ти урбаніст",
+                "Проаналізуй район %f, %f. Опиши транспортну доступність, наявність ТЦ, шкіл та лікарень у радіусі 3 км. Оціни комфорт проживання.",
+                lat, lon);
         return callGemini("INFRASTRUCTURE", prompt);
     }
 
-    // 2. Для РЕЛЬЄФУ (Геоморфологія)
+    /**
+     * Виконує аналіз рельєфу та придатності території для будівництва.
+     */
     public String getTerrainAnalysis(double lat, double lon) {
-        String prompt = String.format(
-                "Ти геоморфолог. Проаналізуй рельєф навколо %f, %f. Опиши тип ландшафту, " +
-                        "наявність схилів чи ярів, та складність території для будівництва. " +
-                        "Українською, до 5 речень.", lat, lon
-        );
+        String prompt = buildPrompt("Ти геоморфолог",
+                "Проаналізуй рельєф навколо %f, %f. Опиши тип ландшафту, наявність схилів чи ярів, та складність території для будівництва.",
+                lat, lon);
         return callGemini("TERRAIN", prompt);
     }
 
-    // 3. Для МОДЕЛІ ВИСОТ (Гідрологія)
+    /**
+     * Аналізує гідрологічні ризики та висотний профіль.
+     */
     public String getDemAnalysis(double lat, double lon) {
-        String prompt = String.format(
-                "Ти гідролог. На основі висотних даних для %f, %f, опиши ризики підтоплення, " +
-                        "напрямок стоку вод та загальний висотний профіль ділянки. " +
-                        "Українською, до 5 речень.", lat, lon
-        );
+        String prompt = buildPrompt("Ти гідролог",
+                "На основі висотних даних для %f, %f, опиши ризики підтоплення, напрямок стоку вод та загальний висотний профіль ділянки.",
+                lat, lon);
         return callGemini("HYDROLOGY", prompt);
     }
 
-    // 4. Для ВЕГЕТАЦІЇ (Екологія)
+    /**
+     * Оцінює стан екосистеми та густоту рослинності.
+     */
     public String getNdviAnalysis(double lat, double lon) {
-        String prompt = String.format(
-                "Ти еколог. Проаналізуй рослинність за координатами %f, %f. Оціни густоту " +
-                        "лісового покриву, стан екосистеми та екологічну привабливість ділянки. " +
-                        "Українською, до 5 речень.", lat, lon
-        );
+        String prompt = buildPrompt("Ти еколог",
+                "Проаналізуй рослинність за координатами %f, %f. Оціни густоту лісового покриву, стан екосистеми та екологічну привабливість ділянки.",
+                lat, lon);
         return callGemini("ECOLOGY/NDVI", prompt);
     }
 
-    // 5. Для СУПУТНИКА (Ретроспектива)
+    /**
+     * Виконує ретроспективний аналіз змін території за 10 років.
+     */
     public String getSatelliteRetrospective(double lat, double lon) {
-        String prompt = String.format(
-                "Ти аналітик супутникових знімків. Опиши динаміку забудови району %f, %f " +
-                        "за останні 10 років. Які перспективи інвестицій у цю землю? " +
-                        "Українською, до 4 речень.", lat, lon
-        );
+        String prompt = buildPrompt("Ти аналітик супутникових знімків",
+                "Опиши динаміку забудови району %f, %f за останні 10 років. Які перспективи інвестицій у цю землю?",
+                lat, lon);
         return callGemini("RETROSPECTIVE", prompt);
     }
 
     /**
-     * Виконує запит до Gemini з детальним логуванням часу та змісту.
+     * Допоміжний метод для побудови уніфікованого промпту.
+     */
+    private String buildPrompt(String role, String task, double lat, double lon) {
+        int limit = ConfigManager.getIntProperty("ai.gemini.sentence.limit");
+        String lang = ConfigManager.getProperty("ai.gemini.language");
+        return String.format("%s. %s. %s, до %d речень.",
+                role, String.format(task, lat, lon), lang, limit);
+    }
+
+    /**
+     * Виконує запит до моделі та логує результати.
      */
     private String callGemini(String type, String prompt) {
+        String model = ConfigManager.getProperty("ai.gemini.model");
         long startTime = System.currentTimeMillis();
-
-        logger.info("--- [GEMINI API CALL START: {}] ---", type);
-        logger.info("PROMPT: {}", prompt);
+        logger.info("--- [GEMINI REQUEST: {}] ---", type);
+        logger.debug("Prompt content: {}", prompt);
 
         try {
-            GenerateContentResponse response = client.models.generateContent(MODEL, prompt, null);
+            GenerateContentResponse response = client.models.generateContent(model, prompt, null);
             String text = response.text();
-
             long duration = System.currentTimeMillis() - startTime;
 
-            if (text == null || text.isEmpty()) {
-                logger.warn("--- [GEMINI API EMPTY RESPONSE] --- [Duration: {} ms]", duration);
-                return "Аналіз недоступний.";
+            if (text == null || text.isBlank()) {
+                logger.warn("Gemini повернув порожню відповідь за {} мс", duration);
+                return "Аналіз тимчасово недоступний.";
             }
 
-            logger.info("--- [GEMINI API SUCCESS] --- [Duration: {} ms ({} sec)]",
-                    duration, String.format("%.2f", duration / 1000.0));
-            logger.debug("RESPONSE: {}", text); // Повний текст у debug логах
+            logger.info("Успішна відповідь Gemini за {} мс", duration);
+            return text.trim();
 
-            return text;
         } catch (Exception e) {
-            long duration = System.currentTimeMillis() - startTime;
-            logger.error("--- [GEMINI API ERROR] --- [Duration: {} ms]", duration);
-            logger.error("Error Message: {}", e.getMessage());
-            return "Помилка отримання даних від ШІ.";
+            logger.error("Помилка API Gemini: {}", e.getMessage());
+            return "Сталася помилка при зверненні до сервісу ШІ.";
         }
     }
 }

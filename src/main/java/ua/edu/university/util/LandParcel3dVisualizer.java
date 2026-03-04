@@ -107,7 +107,7 @@ public class LandParcel3dVisualizer {
         gc.setFill(Color.web("#ecf0f1"));
         gc.fillRect(0, 0, width, height);
         gc.setFill(Color.RED);
-        gc.fillText(message, width/4, height/2);
+        gc.fillText(message, width / 4, height / 2);
         return canvas;
     }
 }

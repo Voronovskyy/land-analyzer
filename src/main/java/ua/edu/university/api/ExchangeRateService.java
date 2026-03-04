@@ -8,52 +8,73 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ua.edu.university.util.ConfigManager;
 
+/**
+ * Сервіс для отримання актуального курсу валют (USD до UAH).
+ * Підтримує основне джерело (ПриватБанк) та резервне (НБУ) для забезпечення
+ * точності фінансових розрахунків у PhD модулі.
+ */
 public class ExchangeRateService extends BaseApiService {
     private static final Logger logger = LoggerFactory.getLogger(ExchangeRateService.class);
 
-    // Нова URL адреса API ПриватБанку (готівковий курс)
-    private static final String PRIVAT_API_URL = "https://api.privatbank.ua/p24api/pubinfo?exchange&coursid=5";
-
+    /**
+     * Отримує поточний курс продажу USD.
+     * Спочатку намагається використати API ПриватБанку, у разі помилки
+     * звертається до API НБУ.
+     * @return актуальний курс долара до гривні
+     */
     public double getCurrentUsdRate() {
+        String privatApiUrl = ConfigManager.getProperty("api.exchange.privat.url");
+
         try {
-            // Використовуємо стабільне посилання прямо в коді або з конфігу
-            String rawJson = sendGetRequest(PRIVAT_API_URL);
+            logger.info("Запит курсу валют через API ПриватБанку...");
+            String rawJson = sendGetRequest(privatApiUrl);
 
             if (rawJson != null && !rawJson.isEmpty()) {
                 JsonArray array = JsonParser.parseString(rawJson).getAsJsonArray();
 
                 for (JsonElement element : array) {
                     JsonObject currency = element.getAsJsonObject();
-                    String ccy = currency.get("ccy").getAsString(); // Код валюти
+                    String currencyCode = currency.get("ccy").getAsString();
 
-                    if ("USD".equalsIgnoreCase(ccy)) {
-                        // Приват повертає курс продажу (sale) та купівлі (buy)
+                    if ("USD".equalsIgnoreCase(currencyCode)) {
+                        // Використовуємо курс продажу (sale)
                         double rate = currency.get("sale").getAsDouble();
-                        logger.info("Успішно отримано курс ПриватБанку: 1 USD = {} UAH", rate);
+                        logger.info("Курс ПриватБанку встановлено: 1 USD = {} UAH", rate);
                         return rate;
                     }
                 }
             }
         } catch (Exception e) {
-            logger.error("Помилка отримання курсу ПриватБанку: {}. Спробуємо резервний НБУ.", e.getMessage());
+            logger.error("ПриватБанк недоступний: {}. Перехід до резервного джерела НБУ.", e.getMessage());
         }
 
-        // Якщо Приват не відповів, спробуємо пряме посилання НБУ (оновлене)
         return getFallbackNbuRate();
     }
 
+    /**
+     * Резервний метод отримання курсу через API Національного банку України.
+     * @return курс НБУ або дефолтне значення з конфігурації
+     */
     private double getFallbackNbuRate() {
-        // Оновлене стабільне посилання НБУ (тільки для USD)
-        String nbuUrl = "https://bank.gov.ua/NBUStatService/v1/statistichny/exchange?valcode=USD&json";
+        String nbuUrl = ConfigManager.getProperty("api.exchange.nbu.url");
+        double defaultRate = ConfigManager.getDoubleProperty("currency.default.rate");
+
         try {
+            logger.info("Запит резервного курсу через НБУ...");
             String rawJson = sendGetRequest(nbuUrl);
-            if (rawJson != null) {
+
+            if (rawJson != null && !rawJson.isEmpty()) {
                 JsonArray array = JsonParser.parseString(rawJson).getAsJsonArray();
-                return array.get(0).getAsJsonObject().get("rate").getAsDouble();
+                if (array.size() > 0) {
+                    double rate = array.get(0).getAsJsonObject().get("rate").getAsDouble();
+                    logger.info("Отримано резервний курс НБУ: 1 USD = {} UAH", rate);
+                    return rate;
+                }
             }
         } catch (Exception e) {
-            logger.warn("НБУ також недоступний. Використовуємо дефолт з конфігу.");
+            logger.warn("НБУ недоступний. Використано дефолтний курс: {} UAH", defaultRate);
         }
-        return ConfigManager.getDoubleProperty("currency.default.rate");
+
+        return defaultRate;
     }
 }
