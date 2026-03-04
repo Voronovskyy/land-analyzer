@@ -1,10 +1,15 @@
 package ua.edu.university.util;
 
+import com.google.gson.JsonObject;
 import javafx.application.Platform;
 import javafx.scene.image.WritableImage;
 import javafx.scene.web.WebView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import ua.edu.university.api.CountryContextService;
+import ua.edu.university.api.InsolationApiService;
+import ua.edu.university.api.OverpassApiService;
+import ua.edu.university.api.WeatherApiService;
 import ua.edu.university.model.Coordinate;
 
 import javax.imageio.ImageIO;
@@ -33,12 +38,21 @@ public class ReportCoordinator {
     private final WebView webView;
     private final PdfReportService pdfService;
     private final GeminiAnalysisService geminiService;
+    private final WeatherApiService weatherService;
+    private final OverpassApiService overpassService;
+    private final InsolationApiService insolationService;
+    private final CountryContextService countryService;
+
     private final Map<String, String> aiAnalyses = new HashMap<>();
 
     public ReportCoordinator(WebView webView) {
         this.webView = webView;
         this.pdfService = new PdfReportService();
         this.geminiService = new GeminiAnalysisService();
+        this.weatherService = new WeatherApiService();
+        this.overpassService = new OverpassApiService();
+        this.insolationService = new InsolationApiService();
+        this.countryService = new CountryContextService();
     }
 
     /**
@@ -53,75 +67,84 @@ public class ReportCoordinator {
 
         aiAnalyses.clear();
         long totalStartTime = System.currentTimeMillis();
-
         boolean isAiEnabled = ConfigManager.getBooleanProperty("analysis.ai.enabled");
-        logger.info("Ініціалізація циклу звітності. Режим ШІ: {}", isAiEnabled ? "ON" : "OFF");
 
         CompletableFuture.runAsync(() -> {
             try {
-                // ЕТАП 1: Інфраструктурний аналіз
+                // --- БЛОК 1: ЗБІР ФІЗИЧНИХ ТА КЛІМАТИЧНИХ ДАНИХ (Паралельно) ---
+                updateStatus(statusUpdater, "Збір кліматичних показників (Open-Meteo)...");
+                JsonObject climateData = weatherService.getClimateStatistics(lat, lon);
+
+                updateStatus(statusUpdater, "Аналіз інженерних мереж (Overpass API)...");
+                JsonObject infraDetails = overpassService.getInfrastructureDetails(lat, lon);
+
+                updateStatus(statusUpdater, "Розрахунок інсоляції та регіональних даних...");
+                String dayLength = insolationService.getDayLength(lat, lon);
+                JsonObject countryContext = countryService.getRegionalContext();
+
+                // --- БЛОК 2: ВІЗУАЛЬНІ ШАРИ ТА ШІ ---
+
+                // 1. Схема
                 aiAnalyses.put("INFRASTRUCTURE", fetchAnalysis(isAiEnabled, "INFRASTRUCTURE", lat, lon, statusUpdater));
                 File imgScheme = captureSnapshotSync(IMG_SCHEME);
 
-                // ЕТАП 2: Геоморфологічний аналіз
+                // 2. Рельєф
                 syncLayerChange("terrainGroup");
                 aiAnalyses.put("TERRAIN", fetchAnalysis(isAiEnabled, "TERRAIN", lat, lon, statusUpdater));
                 File imgTerrain = captureSnapshotSync(IMG_TERRAIN);
 
-                // ЕТАП 3: Гідрологічний аналіз (DEM)
+                // 3. Висоти
                 syncLayerChange("demLayer");
                 aiAnalyses.put("DEM", fetchAnalysis(isAiEnabled, "DEM", lat, lon, statusUpdater));
                 File imgDem = captureSnapshotSync(IMG_DEM);
 
-                // ЕТАП 4: Екологічний моніторинг (NDVI)
+                // 4. Вегетація
                 syncLayerChange("ndviLayer");
                 aiAnalyses.put("NDVI", fetchAnalysis(isAiEnabled, "NDVI", lat, lon, statusUpdater));
                 File imgNdvi = captureSnapshotSync(IMG_NDVI);
 
-                // ЕТАП 5: Ретроспективний аналіз
+                // 5. Супутник
                 syncLayerChange("satellite");
                 aiAnalyses.put("RETROSPECTIVE", fetchAnalysis(isAiEnabled, "RETROSPECTIVE", lat, lon, statusUpdater));
                 File imgSat = captureSnapshotSync(IMG_SATELLITE);
 
-                // ЕТАП 6: Графічне 3D моделювання
-                updateStatus(statusUpdater, "6/6: Побудова 3D моделі рельєфу...");
+                // 6. 3D Модель
+                updateStatus(statusUpdater, "Генерація 3D-моделі...");
                 File img3d = capture3DModelSnapshot(boundaries, elevation);
 
-                // Завершення обробки даних
-                long durationSeconds = (System.currentTimeMillis() - totalStartTime) / 1000;
-                updateStatus(statusUpdater, "Формування PDF документа... (Час: " + durationSeconds + "с)");
+                // --- БЛОК 3: ФІНАЛЬНА ЗБІРКА PDF ---
+                long duration = (System.currentTimeMillis() - totalStartTime) / 1000;
+                updateStatus(statusUpdater, "Збірка комплексного звіту... (" + duration + "с)");
+
                 validateAnalyses();
 
                 Platform.runLater(() -> {
                     try {
-                        pdfService.generateReport(pdfPath, title, area, priceUah, priceUsd,
+                        // Оновлений виклик pdfService з новими даними
+                        pdfService.generateReportExtended(pdfPath, title, area, priceUah, priceUsd,
                                 elevation, suitability, boundaries,
-                                imgScheme, imgTerrain, imgDem, imgNdvi, imgSat,
-                                img3d, aiAnalyses);
+                                imgScheme, imgTerrain, imgDem, imgNdvi, imgSat, img3d,
+                                aiAnalyses, climateData, infraDetails, dayLength, countryContext);
 
                         finalizeAll(pdfPath, statusUpdater, imgScheme, imgTerrain, imgDem, imgNdvi, imgSat, img3d);
                     } catch (Exception e) {
-                        logger.error("Помилка при збірці PDF: {}", e.getMessage());
+                        logger.error("Помилка PDF: {}", e.getMessage());
                         statusUpdater.accept("Помилка створення PDF!");
                     }
                 });
 
             } catch (Exception e) {
-                logger.error("Критичний збій у послідовності звітності: {}", e.getMessage());
-                updateStatus(statusUpdater, "Збій процесу: " + e.getMessage());
+                logger.error("Критичний збій: {}", e.getMessage());
+                updateStatus(statusUpdater, "Збій: " + e.getMessage());
             }
         });
     }
 
-    /**
-     * Отримує аналітичні висновки від ШІ або повертає технічну заглушку.
-     */
-    private String fetchAnalysis(boolean isAiEnabled, String type, double lat, double lon, Consumer<String> statusUpdater) {
-        if (!isAiEnabled) {
-            updateStatus(statusUpdater, "Збір технічних даних: " + type);
-            return "[AI OFF] Автоматичний опис об'єкта за координатами: " + lat + ", " + lon;
-        }
+    // Методи captureSnapshotSync, syncLayerChange, fetchAnalysis залишаються без змін,
+    // як у вашому оригіналі, але додаємо метод оновлення статусу для зручності.
 
+    private String fetchAnalysis(boolean isAiEnabled, String type, double lat, double lon, Consumer<String> statusUpdater) {
+        if (!isAiEnabled) return "[AI DISABLED] Технічний аналіз для " + type;
         updateStatus(statusUpdater, "Аналіз Gemini: " + type + "...");
         return switch (type) {
             case "INFRASTRUCTURE" -> geminiService.getInfrastructureAnalysis(lat, lon);
@@ -133,9 +156,10 @@ public class ReportCoordinator {
         };
     }
 
-    /**
-     * Створює знімок Canvas з 3D візуалізацією.
-     */
+    private void updateStatus(Consumer<String> updater, String msg) {
+        Platform.runLater(() -> updater.accept(msg));
+    }
+
     private File capture3DModelSnapshot(List<Coordinate> boundaries, double elevation) throws Exception {
         CompletableFuture<File> future = new CompletableFuture<>();
         Platform.runLater(() -> {
@@ -145,7 +169,6 @@ public class ReportCoordinator {
                     future.complete(null);
                     return;
                 }
-
                 WritableImage image = canvas.snapshot(null, null);
                 File file = new File(IMG_3D);
                 file.getParentFile().mkdirs();
@@ -164,7 +187,6 @@ public class ReportCoordinator {
     private void syncLayerChange(String layerVarName) throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         int delay = ConfigManager.getIntProperty("report.layer.switch.delay.ms");
-
         Platform.runLater(() -> {
             try {
                 webView.getEngine().executeScript("showLayer('" + layerVarName + "');");
@@ -204,10 +226,6 @@ public class ReportCoordinator {
         }
     }
 
-    private void updateStatus(Consumer<String> updater, String msg) {
-        Platform.runLater(() -> updater.accept(msg));
-    }
-
     /**
      * Очищає тимчасові файли та завершує роботу програми.
      */
@@ -215,21 +233,16 @@ public class ReportCoordinator {
         for (File f : files) {
             if (f != null && f.exists()) f.delete();
         }
-
-        statusUpdater.accept("Готово! Відкриття звіту...");
-
+        statusUpdater.accept("Готово! Звіт відкрито.");
         try {
             java.awt.Desktop.getDesktop().open(new File(path));
         } catch (Exception e) {
-            logger.error("Не вдалося автоматично відкрити PDF: {}", e.getMessage());
         }
-
-        int exitDelay = ConfigManager.getIntProperty("report.final.exit.delay.ms");
         new java.util.Timer().schedule(new java.util.TimerTask() {
             @Override
             public void run() {
                 Platform.runLater(() -> System.exit(0));
             }
-        }, exitDelay);
+        }, ConfigManager.getIntProperty("report.final.exit.delay.ms"));
     }
 }

@@ -1,47 +1,64 @@
 # 📑 Науково-технічний звіт про розробку інтелектуальної ГІС-системи
-**Проєкт:** Land Plot Analyzer v2.0 (PhD Research Module)  
-**Статус:** Рефакторинг завершено, впроваджено мультимодальний ШІ.
+
+**Проєкт:** Land Plot Analyzer v2.1 (PhD Research Module)
+
+**Статус:** Рефакторинг завершено. Інтегровано мультимодальний ШІ та систему геофізичного моніторингу.
 
 ---
 
 ## 🏗 1. Архітектурна концепція
-Система побудована як **Hybrid Geospatial Intelligence System**. Вона поєднує класичні методи геодезичних розрахунків з новітніми технологіями генеративного штучного інтелекту для автоматизації експертної оцінки територій.
 
-
+Система побудована як **Hybrid Geospatial Intelligence System**. Вона реалізує концепцію «Цифрового двійника земельної ділянки», поєднуючи класичні детерміновані методи геодезичних розрахунків з новітніми технологіями генеративного штучного інтелекту та стохастичного аналізу кліматичних даних для повної автоматизації експертної оцінки територій.
 
 ## 🛠 2. Технологічний стек та бібліотеки
+
 | Компонент | Технологія | Роль |
-| :--- | :--- | :--- |
+| --- | --- | --- |
 | **Core Language** | Java 21 (LTS) | Використання сучасних Record-типів, HttpClient та віртуальних потоків. |
-| **UI Framework** | JavaFX 21 | Побудова багатопотокового GUI та Web-інтеграція. |
+| **UI Framework** | JavaFX 21 | Побудова багатопотокового GUI та Web-інтеграція через WebView. |
 | **GIS Engine** | Leaflet.js + Turf.js | Клієнтський рендеринг карт та векторні операції в браузері. |
 | **Math Engine** | JTS Topology Suite | Прецизійні розрахунки геометрії (проєкції, площі, центроїди). |
 | **AI Integration** | Google GenAI SDK | Взаємодія з моделлю Gemini 2.0 Flash через API. |
-| **Document Engine** | OpenPDF (iText fork) | Динамічне формування звітів із підтримкою Unicode (Arial). |
-| **Logging** | SLF4J + Logback | Моніторинг асинхронних процесів та стану API. |
+| **Document Engine** | OpenPDF (iText fork) | Динамічне формування PDF-звітів із підтримкою Unicode. |
+| **Logging** | SLF4J + Logback | Моніторинг асинхронних процесів та стану зовнішніх API. |
 
 ## 🌐 3. Джерела та методи отримання даних
-Система реалізує ланцюжок збору даних (**Data Pipeline**) з відкритих джерел:
-1. **Геопросторові дані:** OpenStreetMap (через Nominatim API) — отримати координати.
-2. **Висоти (DEM):** Open-Elevation API (SRTM Data) — цифрова модель рельєфу.
-3. **Кадастрова геометрія:** JSON-імітація ДЗК (GeoJSON стандарт).
-4. **Супутникові знімки:** Esri World Imagery & Sentinel-2 Cloudless (NDVI).
-5. **Фінанси:** PrivatBank API (JSON) — актуалізація вартості за курсом валют.
 
+Система реалізує розширений ланцюжок збору даних (**Data Pipeline**):
 
+1. **Геопросторові дані:** OpenStreetMap (через Nominatim API) — геокодування об'єктів.
+2. **Висоти (DEM):** Open-Elevation API — отримання цифрової моделі рельєфу SRTM.
+3. **Кліматичний аналіз:** Open-Meteo API — ретроспективні дані опадів та температур.
+4. **Інженерні мережі:** Overpass API — просторовий аналіз ЛЕП, доріг та гідрографії.
+5. **Інсоляція:** Sunrise-Sunset API — розрахунок тривалості світлового дня.
+6. **Супутникові знімки:** Esri World Imagery & Sentinel-2 Cloudless (NDVI).
+7. **Фінанси:** PrivatBank/NBU API — динамічна актуалізація вартості за курсом валют.
 
 ## 📐 4. Математичне та наукове обґрунтування
+
 Для забезпечення точності PhD-рівня впроваджено:
-* **Алгоритм площі Гаусса (Shoelace Formula):** реалізовано в `GeoAnalysisUtil` з корекцією на сферичність Землі ($R = 6371$ км).
-* **3D Проєкція:** Власний двигун аксонометричного рендерингу для перетворення дискретних висотних точок у візуальну модель рельєфу (Wireframe).
-* **Prompt Engineering:** Методологія "Zero-shot CoT" (Chain of Thought) для отримання експертних висновків ШІ за вузькими напрямками (Гідрологія, Екологія, Урбаністика).
 
+* **Алгоритм площі Гаусса (Shoelace Formula):** реалізовано в `GeoAnalysisUtil` з корекцією на сферичність Землі ($R = 6371$ км) та уніфікацією локалізації через `Locale.US` для запобігання похибок форматування.
+* **3D Проєкція:** Власний двигун аксонометричного рендерингу для побудови ізометричних Wireframe-моделей на основі масивів висотних даних.
+* **Prompt Engineering:** Методологія "Zero-shot CoT" (Chain of Thought) для генерації експертних висновків за галузевими напрямками.
+* **Астрофізичні розрахунки:** Алгоритм конвертації сонячної активності з секунд у формат світлового дня для оцінки фотосинтетичного потенціалу ділянки.
 
+## 📊 5. Структура згенерованого звіту
 
-## 📋 5. Список використаних джерел та документації
+Система формує багатосторінковий документ, що містить:
+
+1. **Економічний паспорт:** Розрахунок вартості, площі та коефіцієнт придатності.
+2. **Кліматичний та мережевий паспорт:** Таблиці опадів, температур та відстаней до інженерних мереж.
+3. **Графічний додаток:** 2D-карти (NDVI, DEM, Satellite) та 3D-модель рельєфу.
+4. **AI-експертиза:** 5 тематичних висновків Gemini про стан та перспективи ділянки.
+
+## 📋 6. Список використаних джерел та документації
+
 1. **JTS Topology Suite Documentation** — [https://locationtech.github.io/jts/](https://locationtech.github.io/jts/)
-2. **Leaflet.js API Reference** — [https://leafletjs.com/reference.html](https://leafletjs.com/reference.html)
-3. **Google Gemini API Documentation** — [https://ai.google.dev/docs](https://ai.google.dev/docs)
-4. **OpenPDF Documentation** — [https://github.com/LibrePDF/OpenPDF](https://github.com/LibrePDF/OpenPDF)
-5. **Nominatim Geocoding API** — [https://nominatim.org/release-docs/latest/api/Overview/](https://nominatim.org/release-docs/latest/api/Overview/)
-6. **Esri Map Tile Services** — [https://developers.arcgis.com/documentation/mapping-apis-and-services/maps/services/](https://developers.arcgis.com/documentation/mapping-apis-and-services/maps/services/)
+2. **Open-Meteo Climate Data API** — [https://open-meteo.com/](https://open-meteo.com/)
+3. **Overpass API Language (OSM)** — [https://wiki.openstreetmap.org/wiki/Overpass_API](https://wiki.openstreetmap.org/wiki/Overpass_API)
+4. **Google Gemini API Reference** — [https://ai.google.dev/docs](https://ai.google.dev/docs)
+5. **OpenPDF Documentation** — [https://github.com/LibrePDF/OpenPDF](https://github.com/LibrePDF/OpenPDF)
+6. **Nominatim Geocoding API** — [https://nominatim.org/](https://nominatim.org/)
+
+---
