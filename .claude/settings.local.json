@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn compile *)",
+      "Bash(mvn javafx:run)",
+      "Bash(java -version)",
+      "Bash(mvn -version)",
+      "Read(//c/Program Files/Java\" 2>/dev/**)",
+      "Read(//c/Program Files/Microsoft\" 2>/dev/**)",
+      "Read(//c/.jdks\" 2>/dev/**)",
+      "Read(//c/Program Files/Java/**)",
+      "Read(//c/Users/LENOVO/.jdks/**)",
+      "Read(//c/Program Files/**)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs-developers.ria.com)",
+      "Bash(mvn clean *)",
+      "Bash(xargs grep *)"
+    ]
+  }
+}

@@ -73,19 +73,22 @@ public class MapHtmlBuilder {
                 .append("        var terrainGroup = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}');\n")
                 .append("        var demLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png');\n")
                 .append("        var ndviLayer = L.tileLayer('https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg');\n")
+                .append("        var slopeLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', {maxZoom:16});\n")
                 // Створення об'єкта карти
                 .append(String.format(Locale.US, "        var map = L.map('map', { center: [%f, %f], zoom: %d, layers: [osm] });\n", lat, lon, zoom))
                 // Реєстрація шарів для керування через Java
                 .append("        var layers = {\n")
-                .append("            'osm': osm, 'satellite': satellite, 'terrainGroup': terrainGroup, \n")
-                .append("            'demLayer': demLayer, 'ndviLayer': ndviLayer\n")
+                .append("            'osm': osm, 'satellite': satellite, 'terrainGroup': terrainGroup,\n")
+                .append("            'demLayer': demLayer, 'ndviLayer': ndviLayer,\n")
+                .append("            'slopeLayer': slopeLayer\n")
                 .append("        };\n")
                 // Додавання стандартного контролера шарів
                 .append("        var baseMaps = {\n")
-                .append("            'Схема': osm, 'Супутник': satellite, 'Рельєф': terrainGroup, \n")
-                .append("            'Висоти (DEM)': demLayer, 'Рослинність (NDVI)': ndviLayer\n")
+                .append("            'Схема': osm, 'Супутник': satellite, 'Рельєф': terrainGroup,\n")
+                .append("            'Висоти (DEM)': demLayer, 'Рослинність (NDVI)': ndviLayer,\n")
+                .append("            'Схили (Hillshade)': slopeLayer\n")
                 .append("        };\n")
-                .append("        L.control.layers(baseMaps).addTo(map);\n");
+                .append("        L.control.layers(baseMaps, null, {collapsed:true}).addTo(map);\n");
     }
 
     /**
@@ -100,19 +103,62 @@ public class MapHtmlBuilder {
         }
         pts.append("]");
 
+        int suitPctM = (int)(suitability * 100);
+
         html.append("        var manualPoints = ").append(pts).append(";\n")
-                .append("        var polygon = L.polygon(manualPoints, {color: '#e74c3c', fillColor: '#c0392b', weight: 3, fillOpacity: 0.5}).addTo(map);\n")
-                .append("        window.plotLayer = polygon;\n")
-                .append("        var areaM2 = turf.area(polygon.toGeoJSON());\n")
-                .append("        var popupContent = `\n")
-                .append("           <div style='min-width: 200px; font-family: Arial;'>\n")
-                .append("           <b class='popup-title'>Польовий паспорт</b><hr style='margin: 5px 0;'>\n")
-                .append("           <b>Площа:</b> ${(areaM2/10000).toFixed(4)} га<br>\n")
-                .append(String.format(Locale.US, "           <b>Висота:</b> %.1f м<br>\n", elevation))
-                .append(String.format(Locale.US, "           <b style='color: #27ae60;'>Оцінка:</b> %,.2f ₴<br>\n", priceUah))
-                .append("           <hr style='margin: 2px 0;'><small>Джерело: GPS (Польові виміри)</small></div>`;\n")
-                .append("        polygon.bindPopup(popupContent).openPopup();\n")
-                .append("        map.fitBounds(polygon.getBounds());\n");
+            .append("        var polygon = L.polygon(manualPoints,{color:'#e74c3c',fillColor:'#c0392b',weight:2.5,fillOpacity:0.35}).addTo(map);\n")
+            .append("        window.plotLayer = polygon;\n")
+            .append("        var areaM2 = turf.area(polygon.toGeoJSON());\n")
+            .append("        var pts2 = polygon.getLatLngs()[0]; var perimM=0;\n")
+            .append("        for(var i=0;i<pts2.length;i++){perimM+=map.distance(pts2[i],pts2[(i+1)%pts2.length]);}\n")
+            .append("        var suitPct = ").append(suitPctM).append(";\n")
+            .append("        var sc = suitPct>=90?'#27ae60':suitPct>=65?'#e67e22':'#e74c3c';\n")
+            .append("        var sl = suitPct>=90?'Висока':suitPct>=65?'Середня':'Знижена';\n")
+            .append("        var popupContent = `")
+            .append("<div style='font-family:\"Segoe UI\",Arial,sans-serif;min-width:230px;border-radius:7px;overflow:hidden;border:1px solid #dde3ea;box-shadow:0 3px 10px rgba(0,0,0,.13);'>")
+            .append("<div style='background:#2c3e50;padding:8px 12px;'>")
+            .append("<div style='color:#27ae60;font-size:9px;font-weight:700;letter-spacing:1.4px;'>ЗЕМЕЛЬНА ДІЛЯНКА · GPS · WGS84</div>")
+            .append("<div style='color:#fff;font-size:12px;font-weight:700;margin-top:2px;'>Польовий паспорт</div>")
+            .append("</div>")
+            .append("<div style='background:#fff;padding:9px 12px;'>")
+            // Area + Elevation
+            .append("<div style='display:flex;gap:5px;margin-bottom:5px;'>")
+            .append("<div style='flex:1;background:#f7f8fa;border-radius:5px;padding:5px 8px;border-left:3px solid #27ae60;'>")
+            .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:.8px;'>ПЛОЩА</div>")
+            .append("<div style='color:#2c3e50;font-size:11px;font-weight:700;margin-top:1px;'>${(areaM2/10000).toFixed(4)} га</div>")
+            .append("<div style='color:#bdc3c7;font-size:9px;'>${areaM2.toFixed(0)} м²</div>")
+            .append("</div>")
+            .append("<div style='flex:1;background:#f7f8fa;border-radius:5px;padding:5px 8px;border-left:3px solid #3498db;'>")
+            .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:.8px;'>ВИСОТА Н.Р.М.</div>")
+            .append(String.format(Locale.US, "<div style='color:#2c3e50;font-size:11px;font-weight:700;margin-top:1px;'>%.1f м</div>", elevation))
+            .append("<div style='color:#bdc3c7;font-size:9px;'>WGS84</div>")
+            .append("</div>")
+            .append("</div>")
+            // Perimeter
+            .append("<div style='background:#f7f8fa;border-radius:5px;padding:5px 8px;border-left:3px solid #9b59b6;margin-bottom:5px;'>")
+            .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:.8px;'>ПЕРИМЕТР</div>")
+            .append("<div style='color:#2c3e50;font-size:11px;font-weight:700;margin-top:1px;'>${perimM.toFixed(0)} м</div>")
+            .append("</div>")
+            // Price
+            .append("<div style='background:#eafaf3;border-radius:5px;padding:5px 8px;border-left:3px solid #27ae60;margin-bottom:5px;'>")
+            .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:.8px;'>ОЦІНОЧНА ВАРТІСТЬ</div>")
+            .append(String.format(Locale.US, "<div style='color:#27ae60;font-size:13px;font-weight:700;margin-top:1px;'>%,.0f ₴</div>", priceUah))
+            .append(String.format(Locale.US, "<div style='color:#7f8c8d;font-size:10px;'>≈ $%,.0f USD</div>", priceUsd))
+            .append("</div>")
+            // Suitability bar
+            .append("<div style='background:#f7f8fa;border-radius:5px;padding:7px 9px;margin-bottom:2px;'>")
+            .append("<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;'>")
+            .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:.8px;'>ПРИДАТНІСТЬ</div>")
+            .append("<div style='background:${sc};color:#fff;font-size:9px;font-weight:700;padding:2px 9px;border-radius:10px;'>${sl} · ${suitPct}%</div>")
+            .append("</div>")
+            .append("<div style='height:4px;background:#ecf0f1;border-radius:2px;'>")
+            .append("<div style='height:4px;background:${sc};border-radius:2px;width:${suitPct}%;'></div>")
+            .append("</div>")
+            .append("</div>")
+            .append("<div style='color:#bdc3c7;font-size:8px;text-align:right;margin-top:6px;'>GPS · OpenStreetMap</div>")
+            .append("</div></div>`;\n")
+            .append("        polygon.bindPopup(popupContent,{maxWidth:310}).openPopup();\n")
+            .append("        map.fitBounds(polygon.getBounds());\n");
     }
 
     /**
@@ -120,29 +166,89 @@ public class MapHtmlBuilder {
      */
     private static void appendGeoJsonAnalysis(StringBuilder html, String geoJson, double priceUah,
                                               double priceUsd, double rate, double elevation, double suitability) {
+        int suitPctG = (int)(suitability * 100);
+
         html.append("        var geojsonData = ").append(geoJson).append(";\n")
-                .append("        var plotLayer = L.geoJson(geojsonData, { style: {color: '#e74c3c', fillColor: '#c0392b', weight: 3, fillOpacity: 0.4} }).addTo(map);\n")
-                .append("        window.plotLayer = plotLayer;\n")
-                .append("        var areaM2 = turf.area(geojsonData);\n")
-                .append("        var popupContent = `\n")
-                .append("           <div style='min-width: 200px; font-family: Arial;'>\n")
-                .append("           <b class='popup-title'>Економічний паспорт (ДЗК)</b><hr style='margin: 5px 0;'>\n")
-                .append("           <b>Площа:</b> ${(areaM2/10000).toFixed(4)} га<br>\n")
-                .append(String.format(Locale.US, "           <b>Вартість:</b> %,.2f ₴<br>\n", priceUah))
-                .append("           </div>`;\n")
-                .append("        plotLayer.bindPopup(popupContent).openPopup();\n")
-                .append("        map.fitBounds(plotLayer.getBounds());\n");
+            .append("        var plotLayer = L.geoJson(geojsonData,{style:{color:'#e74c3c',fillColor:'#c0392b',weight:2.5,fillOpacity:0.35}}).addTo(map);\n")
+            .append("        window.plotLayer = plotLayer;\n")
+            .append("        var areaM2 = turf.area(geojsonData);\n")
+            .append("        var lls = plotLayer.getLayers()[0].getLatLngs()[0]; var perimM=0;\n")
+            .append("        for(var i=0;i<lls.length;i++){perimM+=map.distance(lls[i],lls[(i+1)%lls.length]);}\n")
+            .append("        var suitPct = ").append(suitPctG).append(";\n")
+            .append("        var sc = suitPct>=90?'#27ae60':suitPct>=65?'#e67e22':'#e74c3c';\n")
+            .append("        var sl = suitPct>=90?'Висока':suitPct>=65?'Середня':'Знижена';\n")
+            .append("        var popupContent = `")
+            .append("<div style='font-family:\"Segoe UI\",Arial,sans-serif;min-width:230px;border-radius:7px;overflow:hidden;border:1px solid #dde3ea;box-shadow:0 3px 10px rgba(0,0,0,.13);'>")
+            .append("<div style='background:#2c3e50;padding:8px 12px;'>")
+            .append("<div style='color:#27ae60;font-size:9px;font-weight:700;letter-spacing:1.4px;'>ЗЕМЕЛЬНА ДІЛЯНКА · ДЗК</div>")
+            .append("<div style='color:#fff;font-size:12px;font-weight:700;margin-top:2px;'>Кадастровий паспорт</div>")
+            .append("</div>")
+            .append("<div style='background:#fff;padding:9px 12px;'>")
+            // Area + Elevation
+            .append("<div style='display:flex;gap:5px;margin-bottom:5px;'>")
+            .append("<div style='flex:1;background:#f7f8fa;border-radius:5px;padding:5px 8px;border-left:3px solid #27ae60;'>")
+            .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:.8px;'>ПЛОЩА</div>")
+            .append("<div style='color:#2c3e50;font-size:11px;font-weight:700;margin-top:1px;'>${(areaM2/10000).toFixed(4)} га</div>")
+            .append("<div style='color:#bdc3c7;font-size:9px;'>${areaM2.toFixed(0)} м²</div>")
+            .append("</div>")
+            .append("<div style='flex:1;background:#f7f8fa;border-radius:5px;padding:5px 8px;border-left:3px solid #3498db;'>")
+            .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:.8px;'>ВИСОТА Н.Р.М.</div>")
+            .append(String.format(Locale.US, "<div style='color:#2c3e50;font-size:11px;font-weight:700;margin-top:1px;'>%.1f м</div>", elevation))
+            .append("<div style='color:#bdc3c7;font-size:9px;'>WGS84</div>")
+            .append("</div>")
+            .append("</div>")
+            // Perimeter
+            .append("<div style='background:#f7f8fa;border-radius:5px;padding:5px 8px;border-left:3px solid #9b59b6;margin-bottom:5px;'>")
+            .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:.8px;'>ПЕРИМЕТР</div>")
+            .append("<div style='color:#2c3e50;font-size:11px;font-weight:700;margin-top:1px;'>${perimM.toFixed(0)} м</div>")
+            .append("</div>")
+            // Price
+            .append("<div style='background:#eafaf3;border-radius:5px;padding:5px 8px;border-left:3px solid #27ae60;margin-bottom:5px;'>")
+            .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:.8px;'>ОЦІНОЧНА ВАРТІСТЬ</div>")
+            .append(String.format(Locale.US, "<div style='color:#27ae60;font-size:13px;font-weight:700;margin-top:1px;'>%,.0f ₴</div>", priceUah))
+            .append(String.format(Locale.US, "<div style='color:#7f8c8d;font-size:10px;'>≈ $%,.0f USD</div>", priceUsd))
+            .append("</div>")
+            // Suitability bar
+            .append("<div style='background:#f7f8fa;border-radius:5px;padding:7px 9px;margin-bottom:2px;'>")
+            .append("<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;'>")
+            .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:.8px;'>ПРИДАТНІСТЬ</div>")
+            .append("<div style='background:${sc};color:#fff;font-size:9px;font-weight:700;padding:2px 9px;border-radius:10px;'>${sl} · ${suitPct}%</div>")
+            .append("</div>")
+            .append("<div style='height:4px;background:#ecf0f1;border-radius:2px;'>")
+            .append("<div style='height:4px;background:${sc};border-radius:2px;width:${suitPct}%;'></div>")
+            .append("</div>")
+            .append("</div>")
+            .append("<div style='color:#bdc3c7;font-size:8px;text-align:right;margin-top:6px;'>Державний Земельний Кадастр</div>")
+            .append("</div></div>`;\n")
+            .append("        plotLayer.bindPopup(popupContent,{maxWidth:310}).openPopup();\n")
+            .append("        map.fitBounds(plotLayer.getBounds());\n");
     }
 
     /**
      * Додає JS-функції для взаємодії Java-контролера з картою.
      */
     private static void appendHelperFunctions(StringBuilder html) {
-        html.append("\n        function showLayer(layerKey) {\n")
+        html.append("\n")
+                // Глобальні лічильники для відстеження завантаження тайлів
+                .append("        window.tileLoadComplete = true;\n")
+                .append("        window.tileLoadingCount = 0;\n")
+                .append("        function attachTileEvents(layer) {\n")
+                .append("            layer.on('tileloadstart', function() {\n")
+                .append("                window.tileLoadingCount++;\n")
+                .append("                window.tileLoadComplete = false;\n")
+                .append("            });\n")
+                .append("            layer.on('tileload tileerror', function() {\n")
+                .append("                window.tileLoadingCount = Math.max(0, window.tileLoadingCount - 1);\n")
+                .append("                if (window.tileLoadingCount === 0) window.tileLoadComplete = true;\n")
+                .append("            });\n")
+                .append("        }\n")
+                .append("        [osm, satellite, terrainGroup, demLayer, ndviLayer, slopeLayer].forEach(attachTileEvents);\n")
+                .append("\n")
+                .append("        function showLayer(layerKey) {\n")
+                .append("            window.tileLoadComplete = false;\n")
+                .append("            window.tileLoadingCount = 0;\n")
                 .append("            Object.values(layers).forEach(l => { if(map.hasLayer(l)) map.removeLayer(l); });\n")
-                .append("            if (layers[layerKey]) {\n")
-                .append("                layers[layerKey].addTo(map);\n")
-                .append("            }\n")
+                .append("            if (layers[layerKey]) layers[layerKey].addTo(map);\n")
                 .append("            if (window.plotLayer) window.plotLayer.bringToFront();\n")
                 .append("        }\n");
     }

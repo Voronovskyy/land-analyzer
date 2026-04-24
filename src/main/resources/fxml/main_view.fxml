@@ -1,47 +1,71 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<?import javafx.geometry.Insets?>
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.TextField?>
 <?import javafx.scene.layout.*?>
-<?import javafx.scene.text.Font?>
 <?import javafx.scene.web.WebView?>
 
-<VBox alignment="TOP_CENTER" spacing="15.0" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1"
+<VBox spacing="0"
+      stylesheets="@../css/styles.css"
+      xmlns="http://javafx.com/javafx/17"
+      xmlns:fx="http://javafx.com/fxml/1"
       fx:controller="ua.edu.university.ui.MainController">
 
-    <padding>
-        <Insets bottom="20.0" left="20.0" right="20.0" top="20.0"/>
-    </padding>
+    <!-- ══ Header ══════════════════════════════════════════════ -->
+    <HBox styleClass="app-header" alignment="CENTER_LEFT" spacing="10">
 
-    <Label text="Аналіз земельних ділянок" textFill="#2c3e50">
-        <font>
-            <Font name="System Bold" size="24.0"/>
-        </font>
-    </Label>
+        <!-- Ліва частина: назва + підзаголовок -->
+        <VBox spacing="3">
+            <Label text="АНАЛІЗ ЗЕМЕЛЬНИХ ДІЛЯНОК" styleClass="app-title"/>
+            <Label text="Інтелектуальна система геоаналізу · DOM.RIA · Open-Meteo · Overpass"
+                   styleClass="app-subtitle"/>
+        </VBox>
 
-    <HBox spacing="10" alignment="CENTER_LEFT">
-        <TextField fx:id="addressInputField" promptText="Адреса або кадастровий номер..." HBox.hgrow="ALWAYS" />
-        <Button fx:id="searchButton" text="Пошук" onAction="#handleSearch"
-                style="-fx-base: #2ecc71; -fx-text-fill: white; -fx-cursor: hand;"/>
+        <!-- Розтягувач -->
+        <Region HBox.hgrow="ALWAYS"/>
 
-        <Button fx:id="visualizeButton" text="3D Модель" onAction="#handleShowVisualization"
-                style="-fx-base: #f39c12; -fx-text-fill: white; -fx-cursor: hand;"/>
-
-        <Button fx:id="reportButton" text="Звіт (PDF)" onAction="#handleGenerateReport"
-                style="-fx-base: #3498db; -fx-text-fill: white; -fx-cursor: hand;"/>
+        <!-- Права частина: бейдж -->
+        <Label text="PhD RESEARCH" styleClass="app-badge"/>
     </HBox>
 
-    <Label fx:id="resultLabel" text="Введіть дані для початку аналізу" textFill="#7f8c8d">
-        <font>
-            <Font size="14.0"/>
-        </font>
-    </Label>
+    <!-- ══ Toolbar ══════════════════════════════════════════════ -->
+    <HBox styleClass="toolbar" alignment="CENTER_LEFT" spacing="8">
 
-    <WebView fx:id="mapWebView" VBox.vgrow="ALWAYS">
-        <VBox.margin>
-            <Insets top="15.0"/>
-        </VBox.margin>
-    </WebView>
+        <TextField fx:id="addressInputField"
+                   promptText="Адреса, кадастровий номер або координати (49.84,24.02; 49.85,24.03)..."
+                   styleClass="search-field"
+                   HBox.hgrow="ALWAYS"/>
+
+        <Button fx:id="searchButton"
+                text="Пошук"
+                onAction="#handleSearch"
+                styleClass="action-btn, btn-search"/>
+
+        <!-- Тонкий роздільник -->
+        <Region styleClass="btn-separator"/>
+
+        <Button fx:id="visualizeButton"
+                text="3D Модель"
+                onAction="#handleShowVisualization"
+                styleClass="action-btn, btn-3d"/>
+
+        <Button fx:id="reportButton"
+                text="Звіт PDF"
+                onAction="#handleGenerateReport"
+                styleClass="action-btn, btn-report"/>
+
+    </HBox>
+
+    <!-- ══ Status Bar ═══════════════════════════════════════════ -->
+    <HBox styleClass="status-bar" alignment="CENTER_LEFT" spacing="6">
+        <Label text="●" styleClass="status-dot"/>
+        <Label fx:id="resultLabel"
+               text="Введіть дані для початку аналізу"
+               styleClass="status-label"/>
+    </HBox>
+
+    <!-- ══ Map ══════════════════════════════════════════════════ -->
+    <WebView fx:id="mapWebView" VBox.vgrow="ALWAYS"/>
+
 </VBox>

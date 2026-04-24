@@ -1,0 +1,151 @@
+/* ════════════════════════════════════════════════════════
+   Land Plot Analyzer – UI Stylesheet
+   Palette: #2C3E50 (main) · #27AE60 (accent) · #E67E22 (3d) · #2980B9 (report)
+   ════════════════════════════════════════════════════════ */
+
+/* ── Root ────────────────────────────────────────────── */
+.root {
+    -fx-background-color: #f0f2f5;
+    -fx-font-family: "Segoe UI", "Arial", sans-serif;
+}
+
+/* ── App Header ──────────────────────────────────────── */
+.app-header {
+    -fx-background-color: #2c3e50;
+    -fx-padding: 14 20 14 20;
+    -fx-spacing: 10;
+    -fx-alignment: center-left;
+}
+
+.app-title {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+}
+
+.app-subtitle {
+    -fx-text-fill: #7f8c8d;
+    -fx-font-size: 10px;
+}
+
+.app-badge {
+    -fx-text-fill: #27ae60;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-background-color: rgba(39,174,96,0.12);
+    -fx-background-radius: 4;
+    -fx-border-color: rgba(39,174,96,0.35);
+    -fx-border-radius: 4;
+    -fx-border-width: 1;
+    -fx-padding: 3 10 3 10;
+}
+
+/* ── Toolbar ─────────────────────────────────────────── */
+.toolbar {
+    -fx-background-color: #ffffff;
+    -fx-padding: 10 16 10 16;
+    -fx-spacing: 8;
+    -fx-alignment: center-left;
+    -fx-border-color: transparent transparent #dde3ea transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.06), 4, 0, 0, 2);
+}
+
+/* ── Search Field ────────────────────────────────────── */
+.search-field {
+    -fx-background-color: #f7f8fa;
+    -fx-border-color: #d1d9e0;
+    -fx-border-width: 1.2;
+    -fx-border-radius: 7;
+    -fx-background-radius: 7;
+    -fx-padding: 9 14 9 14;
+    -fx-font-size: 13px;
+    -fx-text-fill: #2c3e50;
+    -fx-prompt-text-fill: #aab0ba;
+}
+
+.search-field:focused {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #27ae60;
+    -fx-effect: dropshadow(gaussian, rgba(39,174,96,0.22), 10, 0, 0, 0);
+}
+
+/* ── Buttons (базовий клас) ──────────────────────────── */
+.action-btn {
+    -fx-font-size: 12.5px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 7;
+    -fx-padding: 9 18 9 18;
+    -fx-cursor: hand;
+    -fx-text-fill: white;
+    -fx-border-width: 0;
+}
+
+.action-btn:disabled {
+    -fx-opacity: 0.5;
+    -fx-cursor: default;
+}
+
+/* Пошук — зелений */
+.btn-search {
+    -fx-background-color: #27ae60;
+}
+.btn-search:hover {
+    -fx-background-color: #2ecc71;
+    -fx-effect: dropshadow(gaussian, rgba(46,204,113,0.45), 10, 0, 0, 3);
+}
+.btn-search:pressed {
+    -fx-background-color: #219a52;
+}
+
+/* 3D — помаранчевий */
+.btn-3d {
+    -fx-background-color: #e67e22;
+}
+.btn-3d:hover {
+    -fx-background-color: #f39c12;
+    -fx-effect: dropshadow(gaussian, rgba(230,126,34,0.45), 10, 0, 0, 3);
+}
+.btn-3d:pressed {
+    -fx-background-color: #ca6f1e;
+}
+
+/* Звіт — синій */
+.btn-report {
+    -fx-background-color: #2980b9;
+}
+.btn-report:hover {
+    -fx-background-color: #3498db;
+    -fx-effect: dropshadow(gaussian, rgba(52,152,219,0.45), 10, 0, 0, 3);
+}
+.btn-report:pressed {
+    -fx-background-color: #2472a4;
+}
+
+/* ── Status Bar ──────────────────────────────────────── */
+.status-bar {
+    -fx-background-color: #f7f8fa;
+    -fx-padding: 5 18 5 18;
+    -fx-border-color: #dde3ea transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.status-dot {
+    -fx-text-fill: #27ae60;
+    -fx-font-size: 11px;
+}
+
+.status-label {
+    -fx-text-fill: #6c757d;
+    -fx-font-size: 12px;
+}
+
+/* ── Separator між кнопками ──────────────────────────── */
+.btn-separator {
+    -fx-background-color: #dde3ea;
+    -fx-pref-width: 1;
+    -fx-min-width: 1;
+    -fx-max-width: 1;
+    -fx-pref-height: 24;
+    -fx-min-height: 24;
+}

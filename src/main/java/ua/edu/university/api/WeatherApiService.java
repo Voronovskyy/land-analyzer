@@ -38,6 +38,26 @@ public class WeatherApiService extends BaseApiService {
         }
     }
 
+    public JsonObject getMonthlyData(double lat, double lon) {
+        String baseUrl = ConfigManager.getProperty("api.weather.url");
+        LocalDate yesterday = LocalDate.now().minusDays(1);
+        LocalDate start = yesterday.minusDays(29);
+
+        String url = String.format(Locale.US,
+                "%s?latitude=%f&longitude=%f&start_date=%s&end_date=%s&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto",
+                baseUrl, lat, lon, start.toString(), yesterday.toString());
+
+        try {
+            logger.info("Запит 30-денних даних для: {}, {}", lat, lon);
+            String response = sendGetRequest(url);
+            JsonObject json = JsonParser.parseString(response).getAsJsonObject();
+            return json.has("daily") ? json.getAsJsonObject("daily") : null;
+        } catch (Exception e) {
+            logger.error("Помилка отримання 30-денних даних: {}", e.getMessage());
+            return null;
+        }
+    }
+
     private JsonObject processWeatherData(JsonObject root) {
         JsonObject daily = root.getAsJsonObject("daily");
         JsonArray maxTemps = daily.getAsJsonArray("temperature_2m_max");

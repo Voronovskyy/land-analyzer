@@ -2,21 +2,25 @@ package ua.edu.university.ui;
 
 import javafx.application.Platform;
 import javafx.fxml.FXML;
-import javafx.scene.control.Button;
-import javafx.scene.control.Label;
-import javafx.scene.control.TextField;
+import javafx.geometry.Insets;
+import javafx.scene.control.*;
+import javafx.scene.layout.VBox;
 import javafx.scene.web.WebView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ua.edu.university.api.CadastreApiService;
+import ua.edu.university.api.DomRiaApiService;
 import ua.edu.university.api.ElevationApiService;
 import ua.edu.university.api.ExchangeRateService;
 import ua.edu.university.api.GeoApiService;
 import ua.edu.university.model.Coordinate;
 import ua.edu.university.util.*;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 public class MainController {
@@ -27,6 +31,7 @@ public class MainController {
     private final CadastreApiService cadastreApiService = new CadastreApiService();
     private final ExchangeRateService exchangeRateService = new ExchangeRateService();
     private final ElevationApiService elevationApiService = new ElevationApiService();
+    private final DomRiaApiService domRiaService = new DomRiaApiService();
 
     // Стан даних
     private Coordinate lastSearchResult;
@@ -115,20 +120,21 @@ public class MainController {
     private void handleGenerateReport() {
         if (lastSearchResult == null) return;
 
-        // 1. Перевірка режиму ШІ з конфігурації
-        boolean isAiEnabled = ConfigManager.getBooleanProperty("analysis.ai.enabled");
+        Set<String> selectedLayers = showLayerSelectionDialog();
+        if (selectedLayers == null) return;
+
+        boolean isAiEnabled = selectedLayers.remove("AI_ENABLED");
 
         String input = addressInputField.getText().trim();
         List<Coordinate> boundaries = prepareBoundaries();
         reportButton.setDisable(true);
 
-        // Візуальний фідбек для користувача
         if (!isAiEnabled) {
-            resultLabel.setText("Генерація технічного звіту (ШІ вимкнено)...");
-            logger.info("Генерація звіту розпочата в автономному режимі (AI disabled).");
+            resultLabel.setText("Генерація технічного звіту (AI аналіз вимкнено)...");
+            logger.info("Генерація звіту розпочата без AI аналізу.");
         } else {
-            resultLabel.setText("Підготовка інтелектуального звіту Gemini...");
-            logger.info("Генерація звіту розпочата з використанням ШІ (AI enabled).");
+            resultLabel.setText("Підготовка інтелектуального звіту...");
+            logger.info("Генерація звіту розпочата з AI аналізом.");
         }
 
         String pdfPath = FileUtil.generateReportPath(input);
@@ -136,7 +142,6 @@ public class MainController {
         String priceUahStr = String.format("%,.2f ₴", lastUahPrice);
         String priceUsdStr = String.format("$%,.0f", lastUsdPrice);
 
-        // Створюємо координатор та запускаємо послідовність
         ReportCoordinator coordinator = new ReportCoordinator(mapWebView);
 
         coordinator.runReportingSequence(
@@ -150,14 +155,61 @@ public class MainController {
                 boundaries,
                 lastSearchResult.getLatitude(),
                 lastSearchResult.getLongitude(),
+                selectedLayers,
+                isAiEnabled,
                 status -> Platform.runLater(() -> {
                     resultLabel.setText(status);
-                    // Якщо звіт готовий або сталася помилка — розблоковуємо кнопку
                     if (status.contains("готовий") || status.contains("Помилка") || status.contains("Збій")) {
                         reportButton.setDisable(false);
                     }
                 })
         );
+    }
+
+    private Set<String> showLayerSelectionDialog() {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Вибір шарів звіту");
+        dialog.setHeaderText("Оберіть шари карти для включення в PDF:");
+
+        CheckBox cbScheme    = new CheckBox("Інфраструктура (схема)");
+        CheckBox cbTerrain   = new CheckBox("Топографічний рельєф");
+        CheckBox cbDem       = new CheckBox("Цифрова модель висот (DEM)");
+        CheckBox cbNdvi      = new CheckBox("Стан рослинності (NDVI)");
+        CheckBox cbSatellite = new CheckBox("Супутниковий знімок");
+        CheckBox cb3D        = new CheckBox("3D модель ділянки");
+        CheckBox cbSlope     = new CheckBox("Карта схилів (Hillshade)");
+        CheckBox cbAI        = new CheckBox("Генерувати AI аналіз");
+
+        cbScheme.setSelected(true);
+        cbTerrain.setSelected(true);
+        cbDem.setSelected(true);
+        cbNdvi.setSelected(true);
+        cbSatellite.setSelected(true);
+        cb3D.setSelected(true);
+        cbSlope.setSelected(true);
+        cbAI.setSelected(ConfigManager.getBooleanProperty("analysis.ai.enabled"));
+        cbAI.setStyle("-fx-font-weight: bold;");
+
+        VBox content = new VBox(10, cbScheme, cbTerrain, cbDem, cbNdvi, cbSatellite, cb3D, cbSlope,
+                new javafx.scene.control.Separator(), cbAI);
+        content.setPadding(new Insets(15));
+        dialog.getDialogPane().setContent(content);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        dialog.getDialogPane().setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
+
+        Optional<ButtonType> result = dialog.showAndWait();
+        if (result.isEmpty() || result.get() != ButtonType.OK) return null;
+
+        Set<String> layers = new HashSet<>();
+        if (cbScheme.isSelected())    layers.add("SCHEME");
+        if (cbTerrain.isSelected())   layers.add("TERRAIN");
+        if (cbDem.isSelected())       layers.add("DEM");
+        if (cbNdvi.isSelected())      layers.add("NDVI");
+        if (cbSatellite.isSelected()) layers.add("SATELLITE");
+        if (cb3D.isSelected())        layers.add("3D");
+        if (cbSlope.isSelected())     layers.add("SLOPE");
+        if (cbAI.isSelected())        layers.add("AI_ENABLED");
+        return layers;
     }
 
     private Coordinate performSearch(String input) throws Exception {
@@ -190,16 +242,41 @@ public class MainController {
         coordinate.setAverageElevation(elevation);
         coordinate.setSuitabilityScore((elevation >= 200 && elevation <= 450) ? 0.95 : 0.65);
 
-        // Ціни
+        // Ціни — НГО як початкове значення
         this.lastRate = exchangeRateService.getCurrentUsdRate();
         this.lastUahPrice = LandAnalysisService.calculateUahPrice(currentArea);
         this.lastUsdPrice = LandAnalysisService.calculateUsdPrice(lastUahPrice, lastRate);
 
-        // Оновлення карти
+        // Завантаження карти з НГО (одразу)
         loadMap(coordinate.getLatitude(), coordinate.getLongitude(), 16,
                 coordinate.getGeoJson(), coordinate.getBoundaries(),
                 lastUahPrice, lastUsdPrice, lastRate,
                 coordinate.getAverageElevation(), coordinate.getSuitabilityScore());
+
+        // Ринкова ціна DOM.RIA — фоновий запит, оновлює карту коли прийде
+        fetchMarketPriceAsync(coordinate);
+    }
+
+    private void fetchMarketPriceAsync(Coordinate coordinate) {
+        final double area = currentArea;
+        final double rate = lastRate;
+        resultLabel.setText("Завантаження ринкової вартості (DOM.RIA)...");
+
+        CompletableFuture.supplyAsync(() ->
+                domRiaService.getMarketPricePerSqM(coordinate.getLatitude(), coordinate.getLongitude())
+        ).thenAccept(marketPrice -> Platform.runLater(() -> {
+            if (marketPrice.isPresent()) {
+                lastUahPrice = marketPrice.getAsDouble() * area;
+                lastUsdPrice = LandAnalysisService.calculateUsdPrice(lastUahPrice, rate);
+                loadMap(coordinate.getLatitude(), coordinate.getLongitude(), 16,
+                        coordinate.getGeoJson(), coordinate.getBoundaries(),
+                        lastUahPrice, lastUsdPrice, rate,
+                        coordinate.getAverageElevation(), coordinate.getSuitabilityScore());
+                resultLabel.setText("Об'єкт знайдено! Вартість оновлено (DOM.RIA).");
+            } else {
+                resultLabel.setText("Об'єкт знайдено! Вартість — НГО (DOM.RIA недоступний).");
+            }
+        }));
     }
 
     private Coordinate handleManualPointsInput(String input) {
