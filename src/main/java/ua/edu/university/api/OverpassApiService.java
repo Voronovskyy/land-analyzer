@@ -8,6 +8,8 @@ import org.slf4j.LoggerFactory;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -210,6 +212,70 @@ public class OverpassApiService extends BaseApiService {
             case "residential"  -> "жилий масив";
             default             -> type;
         };
+    }
+
+    // ─── POI в радіусі 2 км ──────────────────────────────────────────────────
+
+    public JsonArray getNearbyPOIs(double lat, double lon) {
+        String query = String.format(Locale.US,
+                "[out:json][timeout:15];" +
+                "(node[\"amenity\"~\"school|hospital|pharmacy|clinic|kindergarten\"](around:2000,%f,%f);" +
+                "node[\"shop\"~\"supermarket|convenience\"](around:1500,%f,%f);" +
+                "node[\"leisure\"~\"park|garden\"](around:1500,%f,%f););" +
+                "out center tags;",
+                lat, lon, lat, lon, lat, lon);
+        try {
+            String encoded  = URLEncoder.encode(query, StandardCharsets.UTF_8);
+            String response = sendGetRequest(OVERPASS_URL + encoded);
+            JsonArray elements = JsonParser.parseString(response).getAsJsonObject()
+                    .has("elements")
+                    ? JsonParser.parseString(response).getAsJsonObject().getAsJsonArray("elements")
+                    : new JsonArray();
+
+            List<JsonObject> list = new ArrayList<>();
+            for (int i = 0; i < elements.size(); i++) {
+                JsonObject el   = elements.get(i).getAsJsonObject();
+                JsonObject tags = el.has("tags") ? el.getAsJsonObject("tags") : new JsonObject();
+                double dist     = extractDistance(el, lat, lon);
+                if (dist >= Double.MAX_VALUE) continue;
+
+                String type = poiType(tags);
+                String name = tags.has("name") ? tags.get("name").getAsString() : type;
+                if (name.length() > 30) name = name.substring(0, 28) + "…";
+
+                JsonObject poi = new JsonObject();
+                poi.addProperty("type", type);
+                poi.addProperty("name", name);
+                poi.addProperty("dist", Math.round(dist));
+                list.add(poi);
+            }
+            list.sort((a, b) -> Long.compare(a.get("dist").getAsLong(), b.get("dist").getAsLong()));
+
+            JsonArray result = new JsonArray();
+            for (int i = 0; i < Math.min(5, list.size()); i++) result.add(list.get(i));
+            return result;
+        } catch (Exception e) {
+            logger.error("getNearbyPOIs error: {}", e.getMessage());
+            return new JsonArray();
+        }
+    }
+
+    private String poiType(JsonObject tags) {
+        if (tags.has("amenity")) return switch (tags.get("amenity").getAsString()) {
+            case "school"       -> "Школа";
+            case "hospital"     -> "Лікарня";
+            case "pharmacy"     -> "Аптека";
+            case "clinic"       -> "Клініка";
+            case "kindergarten" -> "Дитсадок";
+            default             -> "Заклад";
+        };
+        if (tags.has("shop"))   return "Магазин";
+        if (tags.has("leisure")) return switch (tags.get("leisure").getAsString()) {
+            case "park"   -> "Парк";
+            case "garden" -> "Сад";
+            default       -> "Рекреація";
+        };
+        return "Об'єкт";
     }
 
     private JsonObject fallbackResult() {

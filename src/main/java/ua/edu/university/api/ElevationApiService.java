@@ -5,7 +5,10 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import ua.edu.university.model.Coordinate;
 import ua.edu.university.util.ConfigManager;
+
+import java.util.List;
 
 /**
  * Сервіс для отримання даних про висоту над рівнем моря (Digital Elevation Model).
@@ -21,6 +24,14 @@ public class ElevationApiService extends BaseApiService {
      * @param lon довгота в градусах (WGS84)
      * @return висота в метрах над рівнем моря
      */
+    public double[] getMultipleElevations(List<Coordinate> points) {
+        double[] result = new double[points.size()];
+        for (int i = 0; i < points.size(); i++) {
+            result[i] = getElevation(points.get(i).getLatitude(), points.get(i).getLongitude());
+        }
+        return result;
+    }
+
     public double getElevation(double lat, double lon) {
         String baseUrl = ConfigManager.getProperty("api.elevation.url");
         double defaultElevation = ConfigManager.getDoubleProperty("api.elevation.default");

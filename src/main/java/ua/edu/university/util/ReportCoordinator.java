@@ -1,5 +1,6 @@
 package ua.edu.university.util;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import javafx.application.Platform;
 import javafx.scene.image.WritableImage;
@@ -7,6 +8,7 @@ import javafx.scene.web.WebView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ua.edu.university.api.CountryContextService;
+import ua.edu.university.api.ElevationApiService;
 import ua.edu.university.api.GeoApiService;
 import ua.edu.university.api.InsolationApiService;
 import ua.edu.university.api.OverpassApiService;
@@ -40,6 +42,7 @@ public class ReportCoordinator {
     private static final String IMG_SLOPE           = TEMP_DIR + "slope.png";
     private static final String IMG_WEATHER_CHART   = TEMP_DIR + "weather_chart.png";
     private static final String IMG_INFRA_ANNOTATED = TEMP_DIR + "infra_annotated.png";
+    private static final String IMG_ANNUAL_CHART    = TEMP_DIR + "annual_chart.png";
     private final WebView webView;
     private final PdfReportService pdfService;
     private final ClaudeAnalysisService geminiService;
@@ -48,6 +51,7 @@ public class ReportCoordinator {
     private final InsolationApiService insolationService;
     private final CountryContextService countryService;
     private final GeoApiService geoApiService;
+    private final ElevationApiService elevationApiService;
 
     private final Map<String, String> aiAnalyses = new HashMap<>();
 
@@ -60,6 +64,7 @@ public class ReportCoordinator {
         this.insolationService = new InsolationApiService();
         this.countryService = new CountryContextService();
         this.geoApiService = new GeoApiService();
+        this.elevationApiService = new ElevationApiService();
     }
 
     /**
@@ -95,6 +100,17 @@ public class ReportCoordinator {
 
                 updateStatus(statusUpdater, "Визначення адресних даних...");
                 JsonObject geoAddress = geoApiService.getReverseGeocode(lat, lon);
+
+                updateStatus(statusUpdater, "Аналіз мікрооточення (POI 2 км)...");
+                JsonArray poiData = overpassService.getNearbyPOIs(lat, lon);
+
+                updateStatus(statusUpdater, "Висоти кутів ділянки...");
+                double[] cornerElevations = fetchCornerElevations(boundaries);
+
+                updateStatus(statusUpdater, "Річний кліматичний архів...");
+                JsonObject annualMonthly = weatherService.getYearlyMonthlyData(lat, lon);
+                File annualChartFile = (annualMonthly != null)
+                        ? MonthlyClimateChart.generate(annualMonthly, IMG_ANNUAL_CHART) : null;
 
                 // Повний розрахунок КП на основі всіх зібраних даних
                 final double finalSuitability = SuitabilityCalculator.calculate(elevation, infraDetails, climateData);
@@ -191,8 +207,11 @@ public class ReportCoordinator {
                 final File f3d               = img3d;
                 final File fSlope            = imgSlope;
                 final File fWeatherChart     = weatherChartFile;
-                final File fInfraAnnotated   = imgInfraAnnotated;
-                final JsonObject fGeoAddress = geoAddress;
+                final File fInfraAnnotated      = imgInfraAnnotated;
+                final JsonObject fGeoAddress    = geoAddress;
+                final JsonArray  fPoiData       = poiData;
+                final double[]   fCornerElevs   = cornerElevations;
+                final File       fAnnualChart   = annualChartFile;
 
                 Platform.runLater(() -> {
                     try {
@@ -200,9 +219,10 @@ public class ReportCoordinator {
                                 elevation, finalSuitability, boundaries,
                                 fScheme, fTerrain, fDem, fNdvi, fSat, f3d,
                                 fSlope, fWeatherChart, fInfraAnnotated,
-                                aiAnalyses, climateData, infraDetails, dayLength, countryContext, fGeoAddress);
+                                aiAnalyses, climateData, infraDetails, dayLength, countryContext, fGeoAddress,
+                                fPoiData, fCornerElevs, fAnnualChart);
 
-                        finalizeAll(pdfPath, statusUpdater, fScheme, fTerrain, fDem, fNdvi, fSat, f3d, fSlope, fWeatherChart, fInfraAnnotated);
+                        finalizeAll(pdfPath, statusUpdater, fScheme, fTerrain, fDem, fNdvi, fSat, f3d, fSlope, fWeatherChart, fInfraAnnotated, fAnnualChart);
                     } catch (Exception e) {
                         logger.error("Помилка PDF: {}", e.getMessage());
                         statusUpdater.accept("Помилка створення PDF!");
@@ -366,6 +386,22 @@ public class ReportCoordinator {
             }
         });
         return future.get();
+    }
+
+    private double[] fetchCornerElevations(List<Coordinate> boundaries) {
+        if (boundaries == null || boundaries.size() < 3) return null;
+        int n = boundaries.size();
+        List<Coordinate> corners = List.of(
+                boundaries.get(0),
+                boundaries.get(n / 4),
+                boundaries.get(n / 2),
+                boundaries.get(3 * n / 4));
+        try {
+            return elevationApiService.getMultipleElevations(corners);
+        } catch (Exception e) {
+            logger.warn("Corner elevations fetch failed: {}", e.getMessage());
+            return null;
+        }
     }
 
     private void closePopupSync() throws Exception {
