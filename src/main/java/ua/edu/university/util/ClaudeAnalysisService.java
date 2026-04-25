@@ -29,49 +29,33 @@ public class ClaudeAnalysisService {
     }
 
     public String getInfrastructureAnalysis(double lat, double lon) {
-        return call("INFRASTRUCTURE", buildPrompt(
-                "Ти урбаніст",
-                "Проаналізуй район %f, %f. Опиши транспортну доступність, наявність ТЦ, шкіл та лікарень у радіусі 3 км. Оціни комфорт проживання.",
-                lat, lon));
+        PromptLoader.PromptTemplate t = PromptLoader.load("infrastructure");
+        return call("INFRASTRUCTURE", buildPrompt(t.role(), t.task(), lat, lon));
     }
 
     public String getTerrainAnalysis(double lat, double lon) {
-        return call("TERRAIN", buildPrompt(
-                "Ти геоморфолог",
-                "Проаналізуй рельєф навколо %f, %f. Опиши тип ландшафту, наявність схилів чи ярів та складність території для будівництва.",
-                lat, lon));
+        PromptLoader.PromptTemplate t = PromptLoader.load("terrain");
+        return call("TERRAIN", buildPrompt(t.role(), t.task(), lat, lon));
     }
 
     public String getDemAnalysis(double lat, double lon) {
-        return call("DEM", buildPrompt(
-                "Ти гідролог",
-                "На основі висотних даних для %f, %f опиши ризики підтоплення, напрямок стоку вод та загальний висотний профіль ділянки.",
-                lat, lon));
+        PromptLoader.PromptTemplate t = PromptLoader.load("dem");
+        return call("DEM", buildPrompt(t.role(), t.task(), lat, lon));
     }
 
     public String getNdviAnalysis(double lat, double lon) {
-        return call("NDVI", buildPrompt(
-                "Ти еколог",
-                "Проаналізуй рослинність за координатами %f, %f. Оціни густоту лісового покриву, стан екосистеми та екологічну привабливість ділянки.",
-                lat, lon));
+        PromptLoader.PromptTemplate t = PromptLoader.load("ndvi");
+        return call("NDVI", buildPrompt(t.role(), t.task(), lat, lon));
     }
 
     public String getSatelliteRetrospective(double lat, double lon) {
-        return call("RETROSPECTIVE", buildPrompt(
-                "Ти досвідчений аналітик супутникових знімків та інвестиційний консультант з нерухомості",
-                "Проаналізуй динаміку забудови та розвитку району з координатами %f, %f за останні 10 років на основі відомих тенденцій. " +
-                "Опиши: 1) зміни в землекористуванні та щільності забудови, 2) інфраструктурний розвиток, " +
-                "3) інвестиційну привабливість та перспективи зростання вартості. " +
-                "Надай конкретний та впевнений висновок. " +
-                "Не згадуй методологічні застереження, обмеження аналізу, необхідність додаткових інструментів чи технологій.",
-                lat, lon));
+        PromptLoader.PromptTemplate t = PromptLoader.load("satellite");
+        return call("RETROSPECTIVE", buildPrompt(t.role(), t.task(), lat, lon));
     }
 
     public String getSlopeAnalysis(double lat, double lon) {
-        return call("SLOPE", buildPrompt(
-                "Ти геотехнічний інженер та геоморфолог",
-                "Проаналізуй рельєф та схили ділянки за координатами %f, %f. Оціни крутизну схилів, ризики ерозії ґрунту, стабільність основи та придатність для будівництва або сільськогосподарської обробки.",
-                lat, lon));
+        PromptLoader.PromptTemplate t = PromptLoader.load("slope");
+        return call("SLOPE", buildPrompt(t.role(), t.task(), lat, lon));
     }
 
     // ─── Внутрішні методи ────────────────────────────────────────────────
