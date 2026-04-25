@@ -10,6 +10,7 @@ import ua.edu.university.util.ConfigManager;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /**
  * Сервіс для перетворення текстових адрес у географічні координати (геокодування).
@@ -83,5 +84,36 @@ public class GeoApiService extends BaseApiService {
 
         logger.warn("Об'єкт за адресою '{}' не знайдено в базі OSM.", address);
         return null;
+    }
+
+    public JsonObject getReverseGeocode(double lat, double lon) {
+        String reverseUrl = baseUrl.replace("/search", "/reverse");
+        String url = String.format(Locale.US,
+                "%s?lat=%f&lon=%f&format=json&addressdetails=1&accept-language=uk",
+                reverseUrl, lat, lon);
+        try {
+            String response = sendGetRequest(url);
+            JsonObject json = JsonParser.parseString(response).getAsJsonObject();
+            JsonObject addr = json.has("address") ? json.getAsJsonObject("address") : new JsonObject();
+
+            JsonObject result = new JsonObject();
+            result.addProperty("road",     addrStr(addr, "road", ""));
+            result.addProperty("suburb",   addrStr(addr, "city_district",
+                               addrStr(addr, "suburb", addrStr(addr, "quarter", ""))));
+            result.addProperty("city",     addrStr(addr, "city",
+                               addrStr(addr, "town", addrStr(addr, "village",
+                               addrStr(addr, "municipality", "")))));
+            result.addProperty("county",   addrStr(addr, "county", ""));
+            result.addProperty("state",    addrStr(addr, "state", ""));
+            result.addProperty("postcode", addrStr(addr, "postcode", ""));
+            return result;
+        } catch (Exception e) {
+            logger.error("Reverse geocode error: {}", e.getMessage());
+            return new JsonObject();
+        }
+    }
+
+    private String addrStr(JsonObject obj, String key, String fallback) {
+        return (obj.has(key) && !obj.get(key).isJsonNull()) ? obj.get(key).getAsString() : fallback;
     }
 }

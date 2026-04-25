@@ -42,10 +42,11 @@ public class PdfReportService {
                                        List<Coordinate> boundaries,
                                        File mapScheme, File mapTerrain, File mapDem,
                                        File mapNdvi, File mapSat, File map3d,
-                                       File mapSlope, File weatherChart,
+                                       File mapSlope, File weatherChart, File infraAnnotated,
                                        Map<String, String> aiAnalyses,
                                        JsonObject climate, JsonObject infra,
-                                       String dayLength, JsonObject country) {
+                                       String dayLength, JsonObject country,
+                                       JsonObject geoAddress) {
 
         Document document = new Document(PageSize.A4, 40, 40, 45, 40);
 
@@ -65,7 +66,7 @@ public class PdfReportService {
             // --- СТОРІНКА 2: КЛІМАТ ТА ТЕХНІЧНІ МЕРЕЖІ ---
             document.newPage();
             addSectionBanner(document, "КЛІМАТИЧНИЙ ТА ТЕХНІКО-ГЕОГРАФІЧНИЙ ПАСПОРТ", bf, mainColor, 2);
-            addExtendedDataTables(document, climate, infra, dayLength, country, weatherChart, bf, mainColor, accentColor);
+            addExtendedDataTables(document, climate, infra, dayLength, country, geoAddress, weatherChart, infraAnnotated, elevation, suitability, bf, mainColor, accentColor);
 
             // --- КАРТОГРАФІЧНІ СТОРІНКИ ---
             if (mapScheme  != null) addMapPage(document, "1.  ГЕОГРАФІЧНЕ РОЗТАШУВАННЯ ТА ІНФРАСТРУКТУРА", mapScheme,  aiAnalyses.get("INFRASTRUCTURE"), bf, accentColor);
@@ -269,7 +270,9 @@ public class PdfReportService {
     // ─────────────────────────────────────────────────────────────
 
     private void addExtendedDataTables(Document document, JsonObject climate, JsonObject infra,
-                                       String dayLength, JsonObject country, File weatherChart,
+                                       String dayLength, JsonObject country, JsonObject geoAddress,
+                                       File weatherChart, File infraAnnotated,
+                                       double elevation, double suitability,
                                        BaseFont bf, Color mainColor, Color accentColor) throws Exception {
         Font hFont = new Font(bf, 10, Font.BOLD, Color.WHITE);
         Font nFont = new Font(bf, 10, Font.NORMAL);
@@ -376,18 +379,138 @@ public class PdfReportService {
         }
         document.add(infraTable);
 
-        // 3. Геофізичні дані
+        // 3. Геофізичні та адресні дані
         document.add(new Paragraph("3.  Додаткові геофізичні відомості:", bFont));
         PdfPTable geoTable = new PdfPTable(2);
         geoTable.setWidthPercentage(100);
         geoTable.setSpacingBefore(5f);
-        addStyledCell(geoTable, "Тривалість світлового дня", nFont, Color.WHITE,  false);
-        addStyledCell(geoTable, dayLength,                   bFont, Color.WHITE,  false);
-        if (country != null) {
-            addStyledCell(geoTable, "Регіональна юрисдикція",  nFont, COL_ROW_ALT, false);
-            addStyledCell(geoTable, country.get("country").getAsString(), bFont, COL_ROW_ALT, false);
+
+        // Адресні рядки з reverse geocoding
+        if (geoAddress != null && geoAddress.size() > 0) {
+            String road    = safeStr(geoAddress, "road");
+            String suburb  = safeStr(geoAddress, "suburb");
+            String city    = safeStr(geoAddress, "city");
+            String county  = safeStr(geoAddress, "county");
+            String state   = safeStr(geoAddress, "state");
+            String post    = safeStr(geoAddress, "postcode");
+
+            if (!road.isEmpty()) {
+                addStyledCell(geoTable, "Вулиця / дорога",       nFont, Color.WHITE,  false);
+                addStyledCell(geoTable, road,                     bFont, Color.WHITE,  false);
+            }
+            if (!suburb.isEmpty()) {
+                addStyledCell(geoTable, "Район",                  nFont, COL_ROW_ALT, false);
+                addStyledCell(geoTable, suburb,                   bFont, COL_ROW_ALT, false);
+            }
+            if (!city.isEmpty()) {
+                addStyledCell(geoTable, "Населений пункт",        nFont, Color.WHITE,  false);
+                addStyledCell(geoTable, city,                     bFont, Color.WHITE,  false);
+            }
+            if (!county.isEmpty()) {
+                addStyledCell(geoTable, "Адм. район",             nFont, COL_ROW_ALT, false);
+                addStyledCell(geoTable, county,                   bFont, COL_ROW_ALT, false);
+            }
+            if (!state.isEmpty()) {
+                addStyledCell(geoTable, "Область",                nFont, Color.WHITE,  false);
+                addStyledCell(geoTable, state,                    bFont, Color.WHITE,  false);
+            }
+            if (!post.isEmpty()) {
+                addStyledCell(geoTable, "Поштовий індекс",        nFont, COL_ROW_ALT, false);
+                addStyledCell(geoTable, post,                     bFont, COL_ROW_ALT, false);
+            }
+        }
+
+        // Тривалість дня та юрисдикція
+        addStyledCell(geoTable, "Тривалість світлового дня", nFont, COL_ROW_ALT, false);
+        addStyledCell(geoTable, dayLength != null ? dayLength : "н/д", bFont, COL_ROW_ALT, false);
+        if (country != null && country.has("country")) {
+            addStyledCell(geoTable, "Юрисдикція",   nFont, Color.WHITE, false);
+            addStyledCell(geoTable, country.get("country").getAsString(), bFont, Color.WHITE, false);
         }
         document.add(geoTable);
+
+        // 4. Методологія розрахунку коефіцієнта придатності
+        document.add(new Paragraph("4.  Методологія розрахунку коефіцієнта придатності (КП):", bFont));
+        addSuitabilityBreakdown(document, elevation, infra, climate, suitability, bf, mainColor, accentColor);
+
+        // 5. Аналіз транспортної доступності
+        if (infraAnnotated != null && infraAnnotated.exists()) {
+            document.add(new Paragraph("5.  Аналіз транспортної доступності:", bFont));
+            Image annotatedImg = Image.getInstance(infraAnnotated.getAbsolutePath());
+            annotatedImg.scaleToFit(515, 220);
+            annotatedImg.setAlignment(Element.ALIGN_CENTER);
+            annotatedImg.setBorder(Rectangle.BOX);
+            annotatedImg.setBorderWidth(0.5f);
+            annotatedImg.setBorderColor(COL_BORDER);
+            annotatedImg.setSpacingBefore(5f);
+            document.add(annotatedImg);
+
+            Paragraph imgCaption = new Paragraph(
+                    "Рис.  Напрямок та відстань до найближчої дороги (червона точка — центр ділянки, стрілка — напрямок до дороги)",
+                    new Font(bf, 8, Font.ITALIC, Color.GRAY));
+            imgCaption.setAlignment(Element.ALIGN_CENTER);
+            imgCaption.setSpacingBefore(3f);
+            imgCaption.setSpacingAfter(6f);
+            document.add(imgCaption);
+
+            Paragraph conclusion = new Paragraph(buildTransportConclusion(infra),
+                    new Font(bf, 10, Font.NORMAL, new Color(44, 62, 80)));
+            conclusion.setSpacingAfter(8f);
+            document.add(conclusion);
+        }
+    }
+
+    private void addSuitabilityBreakdown(Document document, double elevation,
+                                         JsonObject infra, JsonObject climate, double totalScore,
+                                         BaseFont bf, Color mainColor, Color accentColor) throws DocumentException {
+        Font hFont  = new Font(bf, 9, Font.BOLD,   Color.WHITE);
+        Font nFont  = new Font(bf, 9, Font.NORMAL);
+        Font bFont  = new Font(bf, 9, Font.BOLD);
+        Font naFont = new Font(bf, 9, Font.ITALIC, Color.GRAY);
+
+        PdfPTable t = new PdfPTable(4);
+        t.setWidthPercentage(100);
+        t.setWidths(new int[]{42, 12, 16, 30});
+        t.setSpacingBefore(5f);
+        t.setSpacingAfter(6f);
+
+        addStyledCell(t, "Чинник",          hFont, mainColor, false);
+        addStyledCell(t, "Вага",            hFont, mainColor, true);
+        addStyledCell(t, "Оцінка",          hFont, mainColor, true);
+        addStyledCell(t, "Внесок",          hFont, mainColor, true);
+
+        double[] scores  = SuitabilityCalculator.getFactorScores(elevation, infra, climate);
+        double[] weights = SuitabilityCalculator.FACTOR_WEIGHTS;
+        String[] names   = SuitabilityCalculator.FACTOR_NAMES;
+
+        for (int i = 0; i < names.length; i++) {
+            Color rowBg = (i % 2 == 0) ? Color.WHITE : COL_ROW_ALT;
+            addStyledCell(t, names[i], nFont, rowBg, false);
+
+            String weightStr = String.format("%.0f%%", weights[i] * 100);
+            addStyledCell(t, weightStr, nFont, rowBg, true);
+
+            if (scores[i] < 0) {
+                addStyledCell(t, "—", naFont, rowBg, true);
+                addStyledCell(t, "н/д", naFont, rowBg, true);
+            } else {
+                Color scoreColor = scores[i] >= 0.85 ? accentColor
+                        : scores[i] >= 0.60 ? COL_WARN : COL_DANGER;
+                Font scoreFont = new Font(bf, 9, Font.BOLD, scoreColor);
+                addStyledCell(t, String.format("%.0f%%", scores[i] * 100), scoreFont, rowBg, true);
+                addStyledCell(t, String.format("+%.2f", weights[i] * scores[i]), nFont, rowBg, true);
+            }
+        }
+
+        // Підсумковий рядок
+        Color totalColor = totalScore >= 0.9 ? accentColor : totalScore >= 0.65 ? COL_WARN : COL_DANGER;
+        Font  totalFont  = new Font(bf, 9, Font.BOLD, totalColor);
+        addStyledCell(t, "ПІДСУМКОВИЙ КП",                         new Font(bf, 9, Font.BOLD), mainColor, false);
+        addStyledCell(t, "100%",                                    new Font(bf, 9, Font.BOLD, Color.WHITE), mainColor, true);
+        addStyledCell(t, String.format("%.0f%%", totalScore * 100), totalFont,                  mainColor, true);
+        addStyledCell(t, String.format("= %.2f",  totalScore),      new Font(bf, 9, Font.BOLD, Color.WHITE), mainColor, true);
+
+        document.add(t);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -587,6 +710,41 @@ public class PdfReportService {
     // ─────────────────────────────────────────────────────────────
     //  ФОРМУВАННЯ ДЕТАЛЕЙ ІНФРАСТРУКТУРИ
     // ─────────────────────────────────────────────────────────────
+
+    private String buildTransportConclusion(JsonObject infra) {
+        if (infra == null || !safeBoolean(infra, "road_nearby")) {
+            return "У радіусі 1000 м від ділянки автодоріг не виявлено. " +
+                   "Транспортна доступність є обмеженою, що може суттєво вплинути на вартість " +
+                   "та практичність господарського використання земельної ділянки.";
+        }
+        long   dist = safeLong(infra, "road_distance_m");
+        String type = safeStr(infra,  "road_type");
+
+        String level;
+        String comment;
+        if (dist <= 0) {
+            level   = "достатньою";
+            comment = "Рекомендовано уточнити відстань на місці.";
+        } else if (dist <= 150) {
+            level   = "відмінною";
+            comment = "Ділянка має безпосередній вихід на дорогу, що є значною перевагою при будівництві та експлуатації.";
+        } else if (dist <= 400) {
+            level   = "доброю";
+            comment = "Відстань до дороги є прийнятною для облаштування під'їзного шляху без значних витрат.";
+        } else if (dist <= 700) {
+            level   = "задовільною";
+            comment = "Слід врахувати витрати на прокладення під'їзної дороги у кошторисі будівництва.";
+        } else {
+            level   = "обмеженою";
+            comment = "Значна відстань до дороги потребує суттєвих капіталовкладень у транспортну інфраструктуру.";
+        }
+
+        String typeDesc = type.isEmpty() ? "автодорога" : type;
+        String distStr  = dist > 0 ? " на відстані ~" + dist + " м" : "";
+
+        return "Найближча дорога (" + typeDesc + ") знаходиться" + distStr + " від ділянки. " +
+               "Транспортна доступність оцінюється як " + level + ". " + comment;
+    }
 
     private String buildInfraDetail(JsonObject infra, String prefix, boolean found) {
         if (!found) return "не виявлено в радіусі " + getRadius(prefix) + " м";

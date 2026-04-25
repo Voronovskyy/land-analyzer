@@ -69,8 +69,10 @@ public class OverpassApiService extends BaseApiService {
     private JsonObject processElements(JsonObject root, double refLat, double refLon) {
         JsonArray elements = root.has("elements") ? root.getAsJsonArray("elements") : new JsonArray();
 
-        double minWaterDist = Double.MAX_VALUE;
-        double minRoadDist  = Double.MAX_VALUE;
+        double minWaterDist  = Double.MAX_VALUE;
+        double minRoadDist   = Double.MAX_VALUE;
+        double nearestRoadLat = 0;
+        double nearestRoadLon = 0;
 
         boolean hasPower     = false;
         boolean hasCemetery  = false;
@@ -105,6 +107,14 @@ public class OverpassApiService extends BaseApiService {
                 if (hw.matches("trunk|primary|secondary|tertiary|residential") && dist < minRoadDist) {
                     minRoadDist = dist;
                     roadType    = hw;
+                    if (el.has("center")) {
+                        JsonObject c = el.getAsJsonObject("center");
+                        nearestRoadLat = c.get("lat").getAsDouble();
+                        nearestRoadLon = c.get("lon").getAsDouble();
+                    } else if (el.has("lat") && el.has("lon")) {
+                        nearestRoadLat = el.get("lat").getAsDouble();
+                        nearestRoadLon = el.get("lon").getAsDouble();
+                    }
                 }
             }
 
@@ -138,6 +148,8 @@ public class OverpassApiService extends BaseApiService {
         result.addProperty("road_count",       1);
         result.addProperty("road_distance_m",  hasRoad ? Math.round(minRoadDist) : -1);
         result.addProperty("road_type",        localizeRoadType(roadType));
+        result.addProperty("road_lat",         nearestRoadLat);
+        result.addProperty("road_lon",         nearestRoadLon);
         result.addProperty("cemetery_100m",   hasCemetery);
         result.addProperty("industrial_100m", hasIndustrial);
         result.addProperty("station_100m",    hasStation);
@@ -213,6 +225,8 @@ public class OverpassApiService extends BaseApiService {
         r.addProperty("road_count",       0);
         r.addProperty("road_distance_m",  -1);
         r.addProperty("road_type",        "");
+        r.addProperty("road_lat",         0.0);
+        r.addProperty("road_lon",         0.0);
         r.addProperty("cemetery_100m",   false);
         r.addProperty("industrial_100m", false);
         r.addProperty("station_100m",    false);

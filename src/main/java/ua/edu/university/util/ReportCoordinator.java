@@ -7,6 +7,7 @@ import javafx.scene.web.WebView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ua.edu.university.api.CountryContextService;
+import ua.edu.university.api.GeoApiService;
 import ua.edu.university.api.InsolationApiService;
 import ua.edu.university.api.OverpassApiService;
 import ua.edu.university.api.WeatherApiService;
@@ -30,14 +31,15 @@ import java.util.function.Consumer;
 public class ReportCoordinator {
     private static final Logger logger = LoggerFactory.getLogger(ReportCoordinator.class);
     private static final String TEMP_DIR = "Reports/temp/";
-    private static final String IMG_SCHEME        = TEMP_DIR + "scheme.png";
-    private static final String IMG_TERRAIN       = TEMP_DIR + "terrain.png";
-    private static final String IMG_DEM           = TEMP_DIR + "dem.png";
-    private static final String IMG_NDVI          = TEMP_DIR + "ndvi.png";
-    private static final String IMG_SATELLITE     = TEMP_DIR + "satellite.png";
-    private static final String IMG_3D            = TEMP_DIR + "3d_wireframe.png";
-    private static final String IMG_SLOPE         = TEMP_DIR + "slope.png";
-    private static final String IMG_WEATHER_CHART = TEMP_DIR + "weather_chart.png";
+    private static final String IMG_SCHEME          = TEMP_DIR + "scheme.png";
+    private static final String IMG_TERRAIN         = TEMP_DIR + "terrain.png";
+    private static final String IMG_DEM             = TEMP_DIR + "dem.png";
+    private static final String IMG_NDVI            = TEMP_DIR + "ndvi.png";
+    private static final String IMG_SATELLITE       = TEMP_DIR + "satellite.png";
+    private static final String IMG_3D              = TEMP_DIR + "3d_wireframe.png";
+    private static final String IMG_SLOPE           = TEMP_DIR + "slope.png";
+    private static final String IMG_WEATHER_CHART   = TEMP_DIR + "weather_chart.png";
+    private static final String IMG_INFRA_ANNOTATED = TEMP_DIR + "infra_annotated.png";
     private final WebView webView;
     private final PdfReportService pdfService;
     private final ClaudeAnalysisService geminiService;
@@ -45,6 +47,7 @@ public class ReportCoordinator {
     private final OverpassApiService overpassService;
     private final InsolationApiService insolationService;
     private final CountryContextService countryService;
+    private final GeoApiService geoApiService;
 
     private final Map<String, String> aiAnalyses = new HashMap<>();
 
@@ -56,6 +59,7 @@ public class ReportCoordinator {
         this.overpassService = new OverpassApiService();
         this.insolationService = new InsolationApiService();
         this.countryService = new CountryContextService();
+        this.geoApiService = new GeoApiService();
     }
 
     /**
@@ -89,6 +93,12 @@ public class ReportCoordinator {
                 String dayLength = insolationService.getDayLength(lat, lon);
                 JsonObject countryContext = countryService.getRegionalContext();
 
+                updateStatus(statusUpdater, "Визначення адресних даних...");
+                JsonObject geoAddress = geoApiService.getReverseGeocode(lat, lon);
+
+                // Повний розрахунок КП на основі всіх зібраних даних
+                final double finalSuitability = SuitabilityCalculator.calculate(elevation, infraDetails, climateData);
+
                 // Графік погоди
                 File weatherChartFile = null;
                 if (monthlyData != null) {
@@ -103,10 +113,21 @@ public class ReportCoordinator {
 
                 // 1. Схема
                 File imgScheme = null;
+                File imgInfraAnnotated = null;
                 if (selectedLayers.contains("SCHEME")) {
                     aiAnalyses.put("INFRASTRUCTURE", fetchAnalysis(isAiEnabled, "INFRASTRUCTURE", lat, lon, statusUpdater));
                     waitForTilesSync();
-                    imgScheme = captureSnapshotSync(IMG_SCHEME);
+                    imgScheme = captureSnapshotSync(IMG_SCHEME);   // з паспортом → карта стор.1
+
+                    // Для секції 5: знімаємо без паспорту, потім відновлюємо
+                    closePopupSync();
+                    File imgClean = captureSnapshotSync(IMG_INFRA_ANNOTATED);
+                    openPopupSync();
+
+                    if (imgClean != null) {
+                        updateStatus(statusUpdater, "Анотація транспортної доступності...");
+                        imgInfraAnnotated = InfraAnnotator.annotate(imgClean, lat, lon, infraDetails, IMG_INFRA_ANNOTATED);
+                    }
                 }
 
                 // 2. Рельєф
@@ -162,24 +183,26 @@ public class ReportCoordinator {
 
                 validateAnalyses();
 
-                final File fScheme       = imgScheme;
-                final File fTerrain      = imgTerrain;
-                final File fDem          = imgDem;
-                final File fNdvi         = imgNdvi;
-                final File fSat          = imgSat;
-                final File f3d           = img3d;
-                final File fSlope        = imgSlope;
-                final File fWeatherChart = weatherChartFile;
+                final File fScheme           = imgScheme;
+                final File fTerrain          = imgTerrain;
+                final File fDem              = imgDem;
+                final File fNdvi             = imgNdvi;
+                final File fSat              = imgSat;
+                final File f3d               = img3d;
+                final File fSlope            = imgSlope;
+                final File fWeatherChart     = weatherChartFile;
+                final File fInfraAnnotated   = imgInfraAnnotated;
+                final JsonObject fGeoAddress = geoAddress;
 
                 Platform.runLater(() -> {
                     try {
                         pdfService.generateReportExtended(pdfPath, title, area, priceUah, priceUsd,
-                                elevation, suitability, boundaries,
+                                elevation, finalSuitability, boundaries,
                                 fScheme, fTerrain, fDem, fNdvi, fSat, f3d,
-                                fSlope, fWeatherChart,
-                                aiAnalyses, climateData, infraDetails, dayLength, countryContext);
+                                fSlope, fWeatherChart, fInfraAnnotated,
+                                aiAnalyses, climateData, infraDetails, dayLength, countryContext, fGeoAddress);
 
-                        finalizeAll(pdfPath, statusUpdater, fScheme, fTerrain, fDem, fNdvi, fSat, f3d, fSlope, fWeatherChart);
+                        finalizeAll(pdfPath, statusUpdater, fScheme, fTerrain, fDem, fNdvi, fSat, f3d, fSlope, fWeatherChart, fInfraAnnotated);
                     } catch (Exception e) {
                         logger.error("Помилка PDF: {}", e.getMessage());
                         statusUpdater.accept("Помилка створення PDF!");
@@ -343,6 +366,27 @@ public class ReportCoordinator {
             }
         });
         return future.get();
+    }
+
+    private void closePopupSync() throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            try { webView.getEngine().executeScript("map.closePopup();"); } catch (Exception ignored) {}
+            latch.countDown();
+        });
+        latch.await();
+        Thread.sleep(450);  // дати WebView час перемалювати без попапу
+    }
+
+    private void openPopupSync() throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            try { webView.getEngine().executeScript(
+                    "if(window.plotLayer && window.plotLayer.openPopup) window.plotLayer.openPopup();");
+            } catch (Exception ignored) {}
+            latch.countDown();
+        });
+        latch.await();
     }
 
     private void validateAnalyses() {

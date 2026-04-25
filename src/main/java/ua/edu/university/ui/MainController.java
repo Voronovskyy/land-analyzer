@@ -240,7 +240,7 @@ public class MainController {
         // Аналітика та висота
         double elevation = elevationApiService.getElevation(coordinate.getLatitude(), coordinate.getLongitude());
         coordinate.setAverageElevation(elevation);
-        coordinate.setSuitabilityScore((elevation >= 200 && elevation <= 450) ? 0.95 : 0.65);
+        coordinate.setSuitabilityScore(SuitabilityCalculator.calculateFromElevation(elevation));
 
         // Ціни — НГО як початкове значення
         this.lastRate = exchangeRateService.getCurrentUsdRate();
