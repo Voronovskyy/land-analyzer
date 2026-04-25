@@ -17,13 +17,6 @@ import java.util.List;
 public class ElevationApiService extends BaseApiService {
     private static final Logger logger = LoggerFactory.getLogger(ElevationApiService.class);
 
-    /**
-     * Отримує значення висоти для заданих координат.
-     *
-     * @param lat широта в градусах (WGS84)
-     * @param lon довгота в градусах (WGS84)
-     * @return висота в метрах над рівнем моря
-     */
     public double[] getMultipleElevations(List<Coordinate> points) {
         double[] result = new double[points.size()];
         for (int i = 0; i < points.size(); i++) {
@@ -65,7 +58,11 @@ public class ElevationApiService extends BaseApiService {
             } catch (Exception e) {
                 logger.warn("Спроба {}/{} невдала: {}", attempt, MAX_RETRIES, e.getMessage());
                 if (attempt < MAX_RETRIES) {
-                    try { Thread.sleep(RETRY_DELAY_MS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    try {
+                        Thread.sleep(RETRY_DELAY_MS);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
             }
         }

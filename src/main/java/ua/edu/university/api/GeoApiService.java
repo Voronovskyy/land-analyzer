@@ -97,14 +97,14 @@ public class GeoApiService extends BaseApiService {
             JsonObject addr = json.has("address") ? json.getAsJsonObject("address") : new JsonObject();
 
             JsonObject result = new JsonObject();
-            result.addProperty("road",     addrStr(addr, "road", ""));
-            result.addProperty("suburb",   addrStr(addr, "city_district",
-                               addrStr(addr, "suburb", addrStr(addr, "quarter", ""))));
-            result.addProperty("city",     addrStr(addr, "city",
-                               addrStr(addr, "town", addrStr(addr, "village",
-                               addrStr(addr, "municipality", "")))));
-            result.addProperty("county",   addrStr(addr, "county", ""));
-            result.addProperty("state",    addrStr(addr, "state", ""));
+            result.addProperty("road", addrStr(addr, "road", ""));
+            result.addProperty("suburb", addrStr(addr, "city_district",
+                    addrStr(addr, "suburb", addrStr(addr, "quarter", ""))));
+            result.addProperty("city", addrStr(addr, "city",
+                    addrStr(addr, "town", addrStr(addr, "village",
+                            addrStr(addr, "municipality", "")))));
+            result.addProperty("county", addrStr(addr, "county", ""));
+            result.addProperty("state", addrStr(addr, "state", ""));
             result.addProperty("postcode", addrStr(addr, "postcode", ""));
             return result;
         } catch (Exception e) {

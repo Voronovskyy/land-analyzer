@@ -1,7 +1,6 @@
 package ua.edu.university.util;
 
 import javafx.geometry.Insets;
-import javafx.geometry.Pos;
 import javafx.scene.Cursor;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
@@ -16,12 +15,18 @@ import ua.edu.university.model.Coordinate;
 
 import java.util.List;
 
+/**
+ * JavaFX-вікно інтерактивної 3D-ізометричної візуалізації земельної ділянки.
+ * Відображає wireframe-модель, побудовану {@link LandParcel3dVisualizer},
+ * та панель геометричних характеристик (площа, периметр, висота). Обертання
+ * здійснюється перетягуванням миші по горизонталі.
+ */
 public class Land3DView {
     private static final Logger logger = LoggerFactory.getLogger(Land3DView.class);
 
     private static final double CANVAS_W = 680;
     private static final double CANVAS_H = 500;
-    private static final double PANEL_W  = 190;
+    private static final double PANEL_W = 190;
 
     public static void show(List<Coordinate> boundaries, double elevation, String title) {
         logger.info("Підготовка 3D візуалізації: {}", title);
@@ -33,7 +38,7 @@ public class Land3DView {
             canvas.setCursor(Cursor.HAND);
 
             double[] rotAngle = {0.0};
-            double[] dragX    = {0.0};
+            double[] dragX = {0.0};
 
             Runnable redraw = () -> LandParcel3dVisualizer.draw(
                     canvas.getGraphicsContext2D(), boundaries, elevation,
@@ -75,17 +80,17 @@ public class Land3DView {
         box.getChildren().addAll(
                 sectionTitle("ГЕОМЕТРІЯ"),
                 gap(10),
-                dataRow("Ширина (EW)",   String.format("%.0f м",  dims.widthM())),
+                dataRow("Ширина (EW)", String.format("%.0f м", dims.widthM())),
                 gap(8),
-                dataRow("Довжина (NS)",  String.format("%.0f м",  dims.heightM())),
+                dataRow("Довжина (NS)", String.format("%.0f м", dims.heightM())),
                 gap(8),
-                dataRow("Периметр",      String.format("%.0f м",  dims.perimeterM())),
+                dataRow("Периметр", String.format("%.0f м", dims.perimeterM())),
                 gap(8),
-                dataRow("Площа",         String.format("%.4f га", dims.areaM2() / 10_000.0)),
+                dataRow("Площа", String.format("%.4f га", dims.areaM2() / 10_000.0)),
                 gap(20),
                 sectionTitle("РЕЛЬЄФ"),
                 gap(10),
-                dataRow("Висота н.р.м.", String.format("%.1f м",  elevation)),
+                dataRow("Висота н.р.м.", String.format("%.1f м", elevation)),
                 gap(30),
                 hint()
         );

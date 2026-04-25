@@ -8,21 +8,19 @@ import javafx.scene.layout.VBox;
 import javafx.scene.web.WebView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import ua.edu.university.api.CadastreApiService;
-import ua.edu.university.api.DomRiaApiService;
-import ua.edu.university.api.ElevationApiService;
-import ua.edu.university.api.ExchangeRateService;
-import ua.edu.university.api.GeoApiService;
+import ua.edu.university.api.*;
 import ua.edu.university.model.Coordinate;
 import ua.edu.university.util.*;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * Головний контролер UI, прив'язаний до main_view.fxml.
+ * Керує пошуком об'єктів (адреса / кадастровий номер / ручні координати),
+ * відображенням Leaflet-карти у WebView, розрахунком вартості,
+ * запуском генерації PDF-звіту та 3D-візуалізації ділянки.
+ */
 public class MainController {
     private static final Logger logger = LoggerFactory.getLogger(MainController.class);
 
@@ -40,11 +38,16 @@ public class MainController {
     private double lastUahPrice = 0;
     private double lastUsdPrice = 0;
 
-    @FXML private TextField addressInputField;
-    @FXML private Button searchButton;
-    @FXML private Button reportButton;
-    @FXML private Label resultLabel;
-    @FXML private WebView mapWebView;
+    @FXML
+    private TextField addressInputField;
+    @FXML
+    private Button searchButton;
+    @FXML
+    private Button reportButton;
+    @FXML
+    private Label resultLabel;
+    @FXML
+    private WebView mapWebView;
 
     @FXML
     public void initialize() {
@@ -171,14 +174,14 @@ public class MainController {
         dialog.setTitle("Вибір шарів звіту");
         dialog.setHeaderText("Оберіть шари карти для включення в PDF:");
 
-        CheckBox cbScheme    = new CheckBox("Інфраструктура (схема)");
-        CheckBox cbTerrain   = new CheckBox("Топографічний рельєф");
-        CheckBox cbDem       = new CheckBox("Цифрова модель висот (DEM)");
-        CheckBox cbNdvi      = new CheckBox("Стан рослинності (NDVI)");
+        CheckBox cbScheme = new CheckBox("Інфраструктура (схема)");
+        CheckBox cbTerrain = new CheckBox("Топографічний рельєф");
+        CheckBox cbDem = new CheckBox("Цифрова модель висот (DEM)");
+        CheckBox cbNdvi = new CheckBox("Стан рослинності (NDVI)");
         CheckBox cbSatellite = new CheckBox("Супутниковий знімок");
-        CheckBox cb3D        = new CheckBox("3D модель ділянки");
-        CheckBox cbSlope     = new CheckBox("Карта схилів (Hillshade)");
-        CheckBox cbAI        = new CheckBox("Генерувати AI аналіз");
+        CheckBox cb3D = new CheckBox("3D модель ділянки");
+        CheckBox cbSlope = new CheckBox("Карта схилів (Hillshade)");
+        CheckBox cbAI = new CheckBox("Генерувати AI аналіз");
 
         cbScheme.setSelected(true);
         cbTerrain.setSelected(true);
@@ -201,14 +204,14 @@ public class MainController {
         if (result.isEmpty() || result.get() != ButtonType.OK) return null;
 
         Set<String> layers = new HashSet<>();
-        if (cbScheme.isSelected())    layers.add("SCHEME");
-        if (cbTerrain.isSelected())   layers.add("TERRAIN");
-        if (cbDem.isSelected())       layers.add("DEM");
-        if (cbNdvi.isSelected())      layers.add("NDVI");
+        if (cbScheme.isSelected()) layers.add("SCHEME");
+        if (cbTerrain.isSelected()) layers.add("TERRAIN");
+        if (cbDem.isSelected()) layers.add("DEM");
+        if (cbNdvi.isSelected()) layers.add("NDVI");
         if (cbSatellite.isSelected()) layers.add("SATELLITE");
-        if (cb3D.isSelected())        layers.add("3D");
-        if (cbSlope.isSelected())     layers.add("SLOPE");
-        if (cbAI.isSelected())        layers.add("AI_ENABLED");
+        if (cb3D.isSelected()) layers.add("3D");
+        if (cbSlope.isSelected()) layers.add("SLOPE");
+        if (cbAI.isSelected()) layers.add("AI_ENABLED");
         return layers;
     }
 
@@ -291,7 +294,8 @@ public class MainController {
                     double lat = Double.parseDouble(pts[0].trim());
                     double lon = Double.parseDouble(pts[1].trim());
                     points.add(new Coordinate(lat, lon));
-                    sumLat += lat; sumLon += lon;
+                    sumLat += lat;
+                    sumLon += lon;
                 }
             }
             if (points.size() < 3) return null;
@@ -299,7 +303,10 @@ public class MainController {
             Coordinate manual = new Coordinate(sumLat / points.size(), sumLon / points.size(), null);
             manual.setBoundaries(points);
             return manual;
-        } catch (Exception e) { return null; }
+        } catch (Exception e) {
+            logger.warn("Помилка парсингу ручного вводу координат: {}", e.getMessage());
+            return null;
+        }
     }
 
     private List<Coordinate> prepareBoundaries() {
@@ -313,7 +320,7 @@ public class MainController {
         }
         // Дефолтний квадрат, якщо даних немає зовсім
         double l = lastSearchResult.getLatitude(), o = lastSearchResult.getLongitude(), d = 0.0006;
-        return List.of(new Coordinate(l+d, o-d), new Coordinate(l+d, o+d), new Coordinate(l-d, o+d), new Coordinate(l-d, o-d));
+        return List.of(new Coordinate(l + d, o - d), new Coordinate(l + d, o + d), new Coordinate(l - d, o + d), new Coordinate(l - d, o - d));
     }
 
     private List<Coordinate> parseGeoJsonToCoordinates(String geoJson) {
@@ -326,7 +333,9 @@ public class MainController {
                     coords.add(new Coordinate(Double.parseDouble(pts[1]), Double.parseDouble(pts[0])));
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            logger.debug("Не вдалося розібрати GeoJSON-координати: {}", e.getMessage());
+        }
         return coords;
     }
 

@@ -21,7 +21,9 @@ public class LandParcel3dVisualizer {
 
     // ─── Публічне API ────────────────────────────────────────────────────
 
-    /** Створює Canvas для PDF (кут = 0). */
+    /**
+     * Створює Canvas для PDF (кут = 0).
+     */
     public static Canvas create3dPlot(List<Coordinate> boundaries, double elevation,
                                       double w, double h) {
         Canvas canvas = new Canvas(w, h);
@@ -35,7 +37,8 @@ public class LandParcel3dVisualizer {
 
     /**
      * Основний метод малювання — використовується як у PDF, так і в інтерактивному вікні.
-     * @param rotAngle  кут обертання навколо вертикальної осі (радіани)
+     *
+     * @param rotAngle кут обертання навколо вертикальної осі (радіани)
      */
     public static void draw(GraphicsContext gc, List<Coordinate> boundaries, double elevation,
                             double w, double h, double rotAngle) {
@@ -65,7 +68,7 @@ public class LandParcel3dVisualizer {
 
         double centerLat = (minLat + maxLat) / 2.0;
         double centerLon = (minLon + maxLon) / 2.0;
-        double span      = Math.max(maxLat - minLat, maxLon - minLon);
+        double span = Math.max(maxLat - minLat, maxLon - minLon);
         if (span < 1e-9) span = 1e-9;
         double scale = (w * 0.52) / span;
 
@@ -77,18 +80,18 @@ public class LandParcel3dVisualizer {
         double sin = Math.sin(rotAngle);
 
         // Верхня частина панелі + нижній бар
-        double topPad  = 18;
-        double botBar  = 38;
+        double topPad = 18;
+        double botBar = 38;
         double centerY = topPad + (h - topPad - botBar) * 0.48;
 
         for (int i = 0; i < n; i++) {
             Coordinate c = boundaries.get(i);
             double dx = (c.getLongitude() - centerLon) * scale;
-            double dy = (c.getLatitude()  - centerLat) * scale;
-            double rdx =  dx * cos - dy * sin;
-            double rdy =  dx * sin + dy * cos;
+            double dy = (c.getLatitude() - centerLat) * scale;
+            double rdx = dx * cos - dy * sin;
+            double rdy = dx * sin + dy * cos;
             xP[i] = w / 2.0 + (rdx - rdy) * 0.82;
-            yP[i] = centerY  - (rdx + rdy) * 0.40;
+            yP[i] = centerY - (rdx + rdy) * 0.40;
         }
 
         // ── Бічні грані (екструзія = висота ∈ [14,28]) ───────────────────
@@ -206,7 +209,7 @@ public class LandParcel3dVisualizer {
     private static void drawInfoBar(GraphicsContext gc, double w, double h,
                                     GeoDims dims, double elevation) {
         double barH = 36;
-        double y0   = h - barH;
+        double y0 = h - barH;
 
         gc.setFill(Color.web("#0d1b2a", 0.85));
         gc.fillRect(0, y0, w, barH);
@@ -217,10 +220,10 @@ public class LandParcel3dVisualizer {
         gc.setFont(Font.font("Arial", FontWeight.NORMAL, 9));
         double col = w / 4.0;
         String[] labels = {
-            String.format("ШИРИНА  %.0f м",     dims.widthM),
-            String.format("ДОВЖИНА  %.0f м",    dims.heightM),
-            String.format("ПЕРИМЕТР  %.0f м",   dims.perimeterM),
-            String.format("ВИСОТА  %.1f м",      elevation)
+                String.format("ШИРИНА  %.0f м", dims.widthM),
+                String.format("ДОВЖИНА  %.0f м", dims.heightM),
+                String.format("ПЕРИМЕТР  %.0f м", dims.perimeterM),
+                String.format("ВИСОТА  %.1f м", elevation)
         };
         for (int i = 0; i < 4; i++) {
             gc.setFill(Color.web("#95a5a6"));
@@ -246,12 +249,12 @@ public class LandParcel3dVisualizer {
         double minLon = pts.stream().mapToDouble(Coordinate::getLongitude).min().orElse(0);
         double maxLon = pts.stream().mapToDouble(Coordinate::getLongitude).max().orElse(0);
 
-        double centerLat    = (minLat + maxLat) / 2.0;
-        double mPerLat      = 111319.9;
-        double mPerLon      = 111319.9 * Math.cos(Math.toRadians(centerLat));
+        double centerLat = (minLat + maxLat) / 2.0;
+        double mPerLat = 111319.9;
+        double mPerLon = 111319.9 * Math.cos(Math.toRadians(centerLat));
 
-        double widthM       = (maxLon - minLon) * mPerLon;
-        double heightM      = (maxLat - minLat) * mPerLat;
+        double widthM = (maxLon - minLon) * mPerLon;
+        double heightM = (maxLat - minLat) * mPerLat;
 
         double perimeter = 0;
         int n = pts.size();
@@ -264,22 +267,22 @@ public class LandParcel3dVisualizer {
         for (int i = 0; i < n; i++) {
             int j = (i + 1) % n;
             double xi = pts.get(i).getLongitude() * mPerLon;
-            double yi = pts.get(i).getLatitude()  * mPerLat;
+            double yi = pts.get(i).getLatitude() * mPerLat;
             double xj = pts.get(j).getLongitude() * mPerLon;
-            double yj = pts.get(j).getLatitude()  * mPerLat;
+            double yj = pts.get(j).getLatitude() * mPerLat;
             area += xi * yj - xj * yi;
         }
         return new GeoDims(widthM, heightM, perimeter, Math.abs(area) / 2.0);
     }
 
     private static double haversine(Coordinate a, Coordinate b) {
-        double R    = 6371000.0;
-        double dLat = Math.toRadians(b.getLatitude()  - a.getLatitude());
+        double R = 6371000.0;
+        double dLat = Math.toRadians(b.getLatitude() - a.getLatitude());
         double dLon = Math.toRadians(b.getLongitude() - a.getLongitude());
-        double s    = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                    + Math.cos(Math.toRadians(a.getLatitude()))
-                    * Math.cos(Math.toRadians(b.getLatitude()))
-                    * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        double s = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(a.getLatitude()))
+                * Math.cos(Math.toRadians(b.getLatitude()))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
         return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
     }
 
@@ -295,5 +298,6 @@ public class LandParcel3dVisualizer {
 
     // ─── Внутрішній DTO ──────────────────────────────────────────────────
 
-    public record GeoDims(double widthM, double heightM, double perimeterM, double areaM2) {}
+    public record GeoDims(double widthM, double heightM, double perimeterM, double areaM2) {
+    }
 }

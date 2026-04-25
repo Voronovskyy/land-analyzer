@@ -12,6 +12,13 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 
+/**
+ * Клієнт Claude API (Anthropic) для AI-аналізу геопросторових даних.
+ * Надає 6 методів аналізу: інфраструктура, рельєф, DEM, NDVI,
+ * супутниковий ретроспективний знімок і схили. Промти завантажуються
+ * з classpath-ресурсів через {@link PromptLoader}. API-ключ береться
+ * зі змінної середовища {@code ANTHROPIC_API_KEY}.
+ */
 public class ClaudeAnalysisService {
     private static final Logger logger = LoggerFactory.getLogger(ClaudeAnalysisService.class);
 
@@ -65,8 +72,8 @@ public class ClaudeAnalysisService {
         String lang = ConfigManager.getProperty("ai.claude.language");
         return String.format(
                 "%s. %s. %s, до %d речень. " +
-                "Науковий стиль, тільки факти та характеристики. " +
-                "Без порад, рекомендацій, власних оцінок та фраз типу «варто», «краще», «рекомендується».",
+                        "Науковий стиль, тільки факти та характеристики. " +
+                        "Без порад, рекомендацій, власних оцінок та фраз типу «варто», «краще», «рекомендується».",
                 role, String.format(task, lat, lon), lang, limit);
     }
 

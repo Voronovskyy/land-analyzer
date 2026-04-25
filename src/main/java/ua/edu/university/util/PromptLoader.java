@@ -11,11 +11,18 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+/**
+ * Завантажує AI-промти з classpath-ресурсів {@code /prompts/<name>.md}.
+ * Формат файлу: перший рядок {@code role: <текст>}, потім роздільник {@code ---},
+ * потім тіло задачі з плейсхолдерами {@code %f} для lat/lon.
+ * Результати кешуються в {@code ConcurrentHashMap} після першого читання.
+ */
 public class PromptLoader {
     private static final Logger logger = LoggerFactory.getLogger(PromptLoader.class);
     private static final Map<String, PromptTemplate> cache = new ConcurrentHashMap<>();
 
-    public record PromptTemplate(String role, String task) {}
+    public record PromptTemplate(String role, String task) {
+    }
 
     public static PromptTemplate load(String name) {
         return cache.computeIfAbsent(name, PromptLoader::readFromResource);

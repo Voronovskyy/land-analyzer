@@ -2,6 +2,11 @@ package ua.edu.university.model;
 
 import java.util.List;
 
+/**
+ * Модель геодезичної точки з опціональними розрахованими характеристиками.
+ * Зберігає координати WGS-84, межі полігону ділянки,
+ * висоту над рівнем моря та коефіцієнт придатності.
+ */
 public class Coordinate {
     private final double latitude;
     private final double longitude;
@@ -58,7 +63,9 @@ public class Coordinate {
 
     @Override
     public String toString() {
-        return String.format("Coordinate{lat=%.6f, lon=%.6f, elevation=%.1f, score=%.2f}",
-                latitude, longitude, averageElevation, suitabilityScore);
+        String elev = averageElevation != null ? String.format("%.1f", averageElevation) : "n/a";
+        String score = suitabilityScore != null ? String.format("%.2f", suitabilityScore) : "n/a";
+        return String.format("Coordinate{lat=%.6f, lon=%.6f, elevation=%s, score=%s}",
+                latitude, longitude, elev, score);
     }
 }

@@ -15,15 +15,13 @@ import java.io.File;
  */
 public class InfraAnnotator {
     private static final Logger logger = LoggerFactory.getLogger(InfraAnnotator.class);
-
-    private static final int ARROW_LEN  = 130;
+    private static final int ARROW_LEN = 130;
     private static final int ARROW_HEAD = 18;
     private static final int ARROW_BACK = 30;
-    private static final int DOT_R      = 10;
-
-    private static final Color COL_ARROW  = new Color(230, 126, 34);
-    private static final Color COL_DOT    = new Color(231,  76, 60);
-    private static final Color COL_BOX_BG = new Color(  0,   0,  0, 170);
+    private static final int DOT_R = 10;
+    private static final Color COL_ARROW = new Color(230, 126, 34);
+    private static final Color COL_DOT = new Color(231, 76, 60);
+    private static final Color COL_BOX_BG = new Color(0, 0, 0, 170);
 
     public static File annotate(File sourceImage, double plotLat, double plotLon,
                                 JsonObject infra, String outputPath) {
@@ -35,11 +33,11 @@ public class InfraAnnotator {
             BufferedImage img = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
             Graphics2D g = img.createGraphics();
             g.drawImage(src, 0, 0, null);
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-            int W  = img.getWidth();
-            int H  = img.getHeight();
+            int W = img.getWidth();
+            int H = img.getHeight();
             int cx = W / 2;
             int cy = H / 2;
 
@@ -56,12 +54,12 @@ public class InfraAnnotator {
             if (hasCoords) {
                 double roadLat = infra.get("road_lat").getAsDouble();
                 double roadLon = infra.get("road_lon").getAsDouble();
-                double dLat    = roadLat - plotLat;
-                double dLon    = (roadLon - plotLon) * Math.cos(Math.toRadians(plotLat));
+                double dLat = roadLat - plotLat;
+                double dLon = (roadLon - plotLon) * Math.cos(Math.toRadians(plotLat));
                 double bearing = Math.atan2(dLon, dLat);   // from north, clockwise
 
-                int tipX = cx + (int)(Math.sin(bearing) * ARROW_LEN);
-                int tipY = cy - (int)(Math.cos(bearing) * ARROW_LEN);
+                int tipX = cx + (int) (Math.sin(bearing) * ARROW_LEN);
+                int tipY = cy - (int) (Math.cos(bearing) * ARROW_LEN);
 
                 g.setColor(COL_ARROW);
                 g.setStroke(new BasicStroke(4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
@@ -93,18 +91,18 @@ public class InfraAnnotator {
     }
 
     private static void drawArrowhead(Graphics2D g, int x1, int y1, int x2, int y2) {
-        double dx  = x2 - x1;
-        double dy  = y2 - y1;
+        double dx = x2 - x1;
+        double dy = y2 - y1;
         double len = Math.sqrt(dx * dx + dy * dy);
         if (len < 1) return;
         double ux = dx / len, uy = dy / len;
-        double px = -uy,      py = ux;
+        double px = -uy, py = ux;
 
-        int bx = (int)(x2 - ux * ARROW_BACK);
-        int by = (int)(y2 - uy * ARROW_BACK);
+        int bx = (int) (x2 - ux * ARROW_BACK);
+        int by = (int) (y2 - uy * ARROW_BACK);
 
-        int[] xs = { x2, bx + (int)(px * ARROW_HEAD), bx - (int)(px * ARROW_HEAD) };
-        int[] ys = { y2, by + (int)(py * ARROW_HEAD), by - (int)(py * ARROW_HEAD) };
+        int[] xs = {x2, bx + (int) (px * ARROW_HEAD), bx - (int) (px * ARROW_HEAD)};
+        int[] ys = {y2, by + (int) (py * ARROW_HEAD), by - (int) (py * ARROW_HEAD)};
 
         g.setColor(COL_ARROW);
         g.fillPolygon(xs, ys, 3);
@@ -119,17 +117,17 @@ public class InfraAnnotator {
             line1 = "Автодорога не виявлена";
             line2 = "у радіусі 1000 м";
         } else {
-            long   dist = infra.has("road_distance_m") ? infra.get("road_distance_m").getAsLong() : -1;
-            String type = infra.has("road_type")       ? infra.get("road_type").getAsString()      : "";
+            long dist = infra.has("road_distance_m") ? infra.get("road_distance_m").getAsLong() : -1;
+            String type = infra.has("road_type") ? infra.get("road_type").getAsString() : "";
             line1 = dist > 0 ? "Найближча дорога: ~" + dist + " м" : "Найближча дорога: виявлено";
             line2 = type.isEmpty() ? "" : "Тип: " + type;
         }
 
-        int PAD   = 10;
+        int PAD = 10;
         int lineH = fm.getHeight() + 3;
         int lines = line2.isEmpty() ? 1 : 2;
-        int boxW  = Math.max(fm.stringWidth(line1), line2.isEmpty() ? 0 : fm.stringWidth(line2)) + PAD * 2 + 4;
-        int boxH  = lineH * lines + PAD * 2;
+        int boxW = Math.max(fm.stringWidth(line1), line2.isEmpty() ? 0 : fm.stringWidth(line2)) + PAD * 2 + 4;
+        int boxH = lineH * lines + PAD * 2;
 
         int bx = W - boxW - 14;
         int by = H - boxH - 14;

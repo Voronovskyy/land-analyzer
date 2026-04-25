@@ -20,6 +20,7 @@ public class ExchangeRateService extends BaseApiService {
      * Отримує поточний курс продажу USD.
      * Спочатку намагається використати API ПриватБанку, у разі помилки
      * звертається до API НБУ.
+     *
      * @return актуальний курс долара до гривні
      */
     public double getCurrentUsdRate() {
@@ -53,6 +54,7 @@ public class ExchangeRateService extends BaseApiService {
 
     /**
      * Резервний метод отримання курсу через API Національного банку України.
+     *
      * @return курс НБУ або дефолтне значення з конфігурації
      */
     private double getFallbackNbuRate() {
@@ -65,7 +67,7 @@ public class ExchangeRateService extends BaseApiService {
 
             if (rawJson != null && !rawJson.isEmpty()) {
                 JsonArray array = JsonParser.parseString(rawJson).getAsJsonArray();
-                if (array.size() > 0) {
+                if (!array.isEmpty()) {
                     double rate = array.get(0).getAsJsonObject().get("rate").getAsDouble();
                     logger.info("Отримано резервний курс НБУ: 1 USD = {} UAH", rate);
                     return rate;

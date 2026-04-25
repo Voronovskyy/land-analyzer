@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-LandPlotAnalyzer is a JavaFX desktop application for GIS-based land plot analysis in Ukraine. It integrates 10+ external REST APIs, Google Gemini AI (5 expert roles), and generates multi-page PDF reports with maps, climate data, infrastructure analysis, and 3D visualizations.
+LandPlotAnalyzer is a JavaFX desktop application for GIS-based land plot analysis in Ukraine. It integrates 10+ external REST APIs, Claude AI (Anthropic, 6 expert roles), and generates multi-page PDF reports with maps, climate data, infrastructure analysis, and 3D visualizations.
 
 ## Commands
 
@@ -37,22 +37,32 @@ There are no automated tests in this project — testing is manual via the runni
 - `MainController` — single controller wired to `main_view.fxml`; handles address search, map rendering (WebView + Leaflet), 3D toggle, and report generation trigger
 
 **Orchestration** (`ua.edu.university.util.ReportCoordinator`)
-- Coordinates the full report pipeline: fires parallel `CompletableFuture` calls for weather, infrastructure, insolation, and regional context, then runs sequential map-layer screenshot captures (guarded by `CountDownLatch`), then invokes `GeminiAnalysisService` and `PdfReportService`
+- Runs a 3-phase pipeline: (1) `collectApiData` — parallel `CompletableFuture` calls for weather, infrastructure, insolation, POI, corner elevations, regional context; (2) `captureMapLayers` — sequential WebView screenshots guarded by `CountDownLatch`; (3) `assemblePdf` — invokes `ClaudeAnalysisService` and `PdfReportService`
+- Inter-phase data transfer via private records `ReportData` and `CapturedLayers`
 
 **API Layer** (`ua.edu.university.api`)
 - All services extend `BaseApiService` which wraps `HttpClient`
-- Key services: `WeatherApiService` (Open-Meteo), `GeoApiService` (Nominatim geocoding), `CadastreApiService` (local mock + `cadastre_data.json`), `ElevationApiService`, `OverpassApiService`, `InsolationApiService`, `GeminiAnalysisService`, `CountryContextService`, `ExchangeRateService`
+- Key services: `WeatherApiService` (Open-Meteo), `GeoApiService` (Nominatim geocoding), `CadastreApiService` (local mock + `cadastre_data.json`), `ElevationApiService` (5-retry with 3 s delay), `OverpassApiService`, `InsolationApiService`, `DomRiaApiService` (market price), `CountryContextService`, `ExchangeRateService`
 
 **Utility Layer** (`ua.edu.university.util`)
 - `ConfigManager` — singleton reading `application.properties`; all API URLs, styling constants, and output paths come from here
 - `GeoAnalysisUtil` — Shoelace formula + JTS for area/geometry; use `Locale.US` for all coordinate formatting
+- `LandAnalysisService` — UAH/USD price calculation; NGO rate read from `land.price.ngo_per_sqm` property
+- `SuitabilityCalculator` — weighted score from elevation, infrastructure, and climate data
+- `ClaudeAnalysisService` — Claude API client; 6 analysis roles; prompts loaded via `PromptLoader`
+- `PromptLoader` — reads `/prompts/<name>.md` from classpath, caches in `ConcurrentHashMap`; format: `role: <text>\n---\n<task with %f %f placeholders>`
 - `PdfReportService` — OpenPDF-based 6–8 page report with embedded Cyrillic font
-- `MapHtmlBuilder` — builds the Leaflet HTML injected into WebView; supports OSM, Satellite, Terrain, DEM, NDVI layers
+- `PdfCellHelper` — shared static cell factories and color constants; used via `import static`
+- `MapExtrasBuilder` — builds the per-map-page data tables (POI, elevation delta, flood risk, agroclimatic, slope); used via `import static`
+- `MapHtmlBuilder` — builds the Leaflet HTML injected into WebView; supports OSM, Satellite, Terrain, DEM, NDVI, Slope layers
 - `LandParcel3dVisualizer` — isometric wireframe rendered on JavaFX `Canvas` (no 3D library)
+- `Land3DView` — JavaFX Stage wrapping the 3D canvas with a geometry info panel
+- `WeatherChartGenerator` — 30-day weather chart on JavaFX Canvas; **must run on FX thread**
+- `MonthlyClimateChart` — 12-month annual chart using Java2D `BufferedImage`; can run off FX thread
+- `InfraAnnotator` — annotates infrastructure screenshot with transport accessibility data
 
 **Models** (`ua.edu.university.model`)
 - `Coordinate` — holds lat/lng, bounding polygon, elevation, and computed suitability score
-- `ExtendedLandData` — aggregated result from all API calls, passed to report generation
 
 ### Configuration
 
@@ -60,10 +70,11 @@ There are no automated tests in this project — testing is manual via the runni
 - API base URLs (Open-Meteo, Nominatim, Overpass, Open-Elevation, PrivatBank/NBU)
 - Default map center (Ukraine: 49.8397, 24.0297)
 - PDF styling (colors `#2C3E50` / `#27AE60`, font paths)
-- Gemini model (`gemini-2.0-flash-preview`)
+- Claude model and token limits (`ai.claude.model`, `ai.claude.max.tokens`)
+- Land NGO price rate (`land.price.ngo_per_sqm`)
 - Report output directory (`Reports/`)
 
-The Gemini API key is supplied via the `GEMINI_API_KEY` environment variable (not stored in properties).
+The Claude API key is supplied via the `ANTHROPIC_API_KEY` environment variable (not stored in properties).
 
 ### Key Technical Constraints
 

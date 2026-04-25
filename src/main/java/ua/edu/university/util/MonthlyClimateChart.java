@@ -18,26 +18,26 @@ import java.io.File;
 public class MonthlyClimateChart {
     private static final Logger logger = LoggerFactory.getLogger(MonthlyClimateChart.class);
 
-    private static final int W     = 820, H     = 195;
-    private static final int PAD_L = 44,  PAD_R = 50;
-    private static final int PAD_T = 24,  PAD_B = 32;
+    private static final int W = 820, H = 195;
+    private static final int PAD_L = 44, PAD_R = 50;
+    private static final int PAD_T = 24, PAD_B = 32;
 
     public static File generate(JsonObject monthly, String outputPath) {
         try {
-            JsonArray mNames   = monthly.getAsJsonArray("months");
-            JsonArray tmaxArr  = monthly.getAsJsonArray("tmax_avg");
-            JsonArray tminArr  = monthly.getAsJsonArray("tmin_avg");
-            JsonArray precipArr= monthly.getAsJsonArray("precip_sum");
+            JsonArray mNames = monthly.getAsJsonArray("months");
+            JsonArray tmaxArr = monthly.getAsJsonArray("tmax_avg");
+            JsonArray tminArr = monthly.getAsJsonArray("tmin_avg");
+            JsonArray precipArr = monthly.getAsJsonArray("precip_sum");
 
             int n = Math.min(12, mNames.size());
-            double[] tmax   = new double[n];
-            double[] tmin   = new double[n];
+            double[] tmax = new double[n];
+            double[] tmin = new double[n];
             double[] precip = new double[n];
             double maxT = -100, minT = 100, maxP = 1;
 
             for (int i = 0; i < n; i++) {
-                tmax[i]   = val(tmaxArr, i);
-                tmin[i]   = val(tminArr, i);
+                tmax[i] = val(tmaxArr, i);
+                tmin[i] = val(tminArr, i);
                 precip[i] = val(precipArr, i);
                 maxT = Math.max(maxT, tmax[i]);
                 minT = Math.min(minT, tmin[i]);
@@ -46,7 +46,7 @@ public class MonthlyClimateChart {
 
             double tAxisMax = Math.ceil((maxT + 3) / 5) * 5;
             double tAxisMin = Math.floor((minT - 3) / 5) * 5;
-            double tRange   = Math.max(tAxisMax - tAxisMin, 1);
+            double tRange = Math.max(tAxisMax - tAxisMin, 1);
             double precipMax = Math.ceil(maxP / 20) * 20;
 
             int cW = W - PAD_L - PAD_R;
@@ -69,7 +69,7 @@ public class MonthlyClimateChart {
             g.setFont(new Font("Arial", Font.PLAIN, 10));
             FontMetrics fm = g.getFontMetrics();
             for (double t = tAxisMin; t <= tAxisMax + 0.1; t += 5) {
-                int y = PAD_T + (int)((tAxisMax - t) / tRange * cH);
+                int y = PAD_T + (int) ((tAxisMax - t) / tRange * cH);
                 float[] dash = {4f, 3f};
                 g.setColor(new Color(210, 215, 220));
                 g.setStroke(new BasicStroke(0.6f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 1f, dash, 0));
@@ -82,10 +82,10 @@ public class MonthlyClimateChart {
 
             // Precipitation bars (semi-transparent blue)
             for (int i = 0; i < n; i++) {
-                int barW = Math.max(2, (int)(colW * 0.62));
-                int barH = (int)(precip[i] / precipMax * cH);
-                int bx   = PAD_L + (int)(i * colW + (colW - barW) / 2);
-                int by   = PAD_T + cH - barH;
+                int barW = Math.max(2, (int) (colW * 0.62));
+                int barH = (int) (precip[i] / precipMax * cH);
+                int bx = PAD_L + (int) (i * colW + (colW - barW) / 2);
+                int by = PAD_T + cH - barH;
                 g.setStroke(new BasicStroke(1f));
                 g.setColor(new Color(133, 193, 233, 155));
                 g.fillRect(bx, by, barW, barH);
@@ -107,11 +107,13 @@ public class MonthlyClimateChart {
             // Dots
             g.setStroke(new BasicStroke(1f));
             for (int i = 0; i < n; i++) {
-                int cx   = PAD_L + (int)((i + 0.5) * colW);
-                int yMax = PAD_T + (int)((tAxisMax - tmax[i]) / tRange * cH);
-                int yMin = PAD_T + (int)((tAxisMax - tmin[i]) / tRange * cH);
-                g.setColor(new Color(231, 76, 60));   g.fillOval(cx - 3, yMax - 3, 6, 6);
-                g.setColor(new Color(41, 128, 185));  g.fillOval(cx - 3, yMin - 3, 6, 6);
+                int cx = PAD_L + (int) ((i + 0.5) * colW);
+                int yMax = PAD_T + (int) ((tAxisMax - tmax[i]) / tRange * cH);
+                int yMin = PAD_T + (int) ((tAxisMax - tmin[i]) / tRange * cH);
+                g.setColor(new Color(231, 76, 60));
+                g.fillOval(cx - 3, yMax - 3, 6, 6);
+                g.setColor(new Color(41, 128, 185));
+                g.fillOval(cx - 3, yMin - 3, 6, 6);
             }
 
             // Month labels
@@ -120,7 +122,7 @@ public class MonthlyClimateChart {
             g.setColor(new Color(55, 55, 55));
             for (int i = 0; i < n; i++) {
                 String m = mNames.get(i).getAsString();
-                int x = PAD_L + (int)((i + 0.5) * colW) - fm.stringWidth(m) / 2;
+                int x = PAD_L + (int) ((i + 0.5) * colW) - fm.stringWidth(m) / 2;
                 g.drawString(m, x, PAD_T + cH + 17);
             }
 
@@ -129,7 +131,7 @@ public class MonthlyClimateChart {
             fm = g.getFontMetrics();
             g.setColor(new Color(41, 100, 180));
             for (int pv = 0; pv <= (int) precipMax; pv += 20) {
-                int y = PAD_T + cH - (int)((double) pv / precipMax * cH);
+                int y = PAD_T + cH - (int) ((double) pv / precipMax * cH);
                 g.drawString(pv + "мм", PAD_L + cW + 3, y + fm.getAscent() / 2);
             }
 
@@ -174,7 +176,8 @@ public class MonthlyClimateChart {
         for (int i = 0; i < n; i++) {
             double x = PAD_L + (i + 0.5) * colW;
             double y = PAD_T + (tAxisMax - vals[i]) / tRange * cH;
-            if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
+            if (i == 0) path.moveTo(x, y);
+            else path.lineTo(x, y);
         }
         g.draw(path);
     }

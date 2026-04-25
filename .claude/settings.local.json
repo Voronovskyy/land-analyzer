@@ -15,7 +15,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:docs-developers.ria.com)",
       "Bash(mvn clean *)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(javac -version)",
+      "Bash(grep -v \"import\\\\|//\")"
     ]
   }
 }

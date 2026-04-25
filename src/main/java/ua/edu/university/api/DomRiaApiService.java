@@ -14,29 +14,25 @@ import java.util.*;
  * Сервіс для отримання ринкових цін на земельні ділянки через DOM.RIA API.
  * Використовує reverse-geocoding (Nominatim) для визначення регіону, після чого
  * шукає активні оголошення продажу і повертає медіанну ціну UAH/м².
- *
  * Потребує валідного ключа api.domria.key в application.properties.
  * Реєстрація: https://developers.ria.com
  */
 public class DomRiaApiService extends BaseApiService {
 
     private static final Logger logger = LoggerFactory.getLogger(DomRiaApiService.class);
-
     private static final int CATEGORY_LAND = 24;
     private static final int OPERATION_SALE = 1;
-    private static final int MAX_LISTINGS   = 7;
-
-    private static final double MIN_PRICE_PER_SQM =     1.0;
+    private static final int MAX_LISTINGS = 7;
+    private static final double MIN_PRICE_PER_SQM = 1.0;
     private static final double MAX_PRICE_PER_SQM = 50_000.0;
-
     private final String searchUrl;
     private final String infoUrl;
     private final String reverseUrl;
 
     public DomRiaApiService() {
         super();
-        this.searchUrl  = ConfigManager.getProperty("api.domria.search.url");
-        this.infoUrl    = ConfigManager.getProperty("api.domria.info.url");
+        this.searchUrl = ConfigManager.getProperty("api.domria.search.url");
+        this.infoUrl = ConfigManager.getProperty("api.domria.info.url");
         this.reverseUrl = ConfigManager.getProperty("api.domria.reverse.url");
     }
 
@@ -83,7 +79,6 @@ public class DomRiaApiService extends BaseApiService {
     }
 
     // ─── Крок 1: визначення регіону через Nominatim reverse ───────────────
-
     private int resolveStateId(double lat, double lon) throws Exception {
         String url = String.format(
                 "%s?lat=%f&lon=%f&format=json&addressdetails=1&accept-language=uk",
@@ -95,7 +90,7 @@ public class DomRiaApiService extends BaseApiService {
 
         JsonObject addr = obj.getAsJsonObject("address");
         String state = addr.has("state") ? addr.get("state").getAsString() : "";
-        String city  = addr.has("city")  ? addr.get("city").getAsString()  : "";
+        String city = addr.has("city") ? addr.get("city").getAsString() : "";
 
         int id = STATE_IDS.getOrDefault(state.toLowerCase(), -1);
         if (id == -1) id = STATE_IDS.getOrDefault(city.toLowerCase(), -1);
@@ -105,7 +100,6 @@ public class DomRiaApiService extends BaseApiService {
     }
 
     // ─── Крок 2: пошук оголошень ──────────────────────────────────────────
-
     private List<Integer> searchListings(int stateId, String apiKey) throws Exception {
         String url = String.format(
                 "%s?api_key=%s&category=%d&operation_type=%d&state_id=%d",
@@ -123,15 +117,14 @@ public class DomRiaApiService extends BaseApiService {
     }
 
     // ─── Крок 3: отримання ціни одного оголошення ────────────────────────
-
     private OptionalDouble getPricePerSqM(int listingId, String apiKey) {
         try {
-            String url  = infoUrl + listingId + "?api_key=" + apiKey;
+            String url = infoUrl + listingId + "?api_key=" + apiKey;
             String json = sendGetRequest(url);
             JsonObject obj = JsonParser.parseString(json).getAsJsonObject();
 
             double totalPriceUah = extractPrice(obj);
-            double areaSqM       = extractAreaSqM(obj);
+            double areaSqM = extractAreaSqM(obj);
 
             if (totalPriceUah <= 0 || areaSqM <= 0) return OptionalDouble.empty();
 
@@ -150,7 +143,9 @@ public class DomRiaApiService extends BaseApiService {
 
     // ─── Парсери відповіді DOM.RIA ────────────────────────────────────────
 
-    /** Витягує ціну у гривнях. Пробує priceArr[], потім price. */
+    /**
+     * Витягує ціну у гривнях. Пробує priceArr[], потім price.
+     */
     private double extractPrice(JsonObject obj) {
         // Варіант 1: priceArr[{ currency, value }]
         if (obj.has("priceArr") && obj.get("priceArr").isJsonArray()) {
@@ -201,64 +196,61 @@ public class DomRiaApiService extends BaseApiService {
     }
 
     // ─── Таблиця відповідності назв областей до state_id DOM.RIA ─────────
-
     private static final Map<String, Integer> STATE_IDS = buildStateMap();
 
     private static Map<String, Integer> buildStateMap() {
         Map<String, Integer> m = new HashMap<>();
-        // Українські назви (Nominatim з accept-language=uk)
-        m.put("вінницька область",        1);
-        m.put("волинська область",         2);
-        m.put("дніпропетровська область",  3);
-        m.put("донецька область",          4);
-        m.put("житомирська область",       5);
-        m.put("закарпатська область",      6);
-        m.put("запорізька область",        7);
+        m.put("вінницька область", 1);
+        m.put("волинська область", 2);
+        m.put("дніпропетровська область", 3);
+        m.put("донецька область", 4);
+        m.put("житомирська область", 5);
+        m.put("закарпатська область", 6);
+        m.put("запорізька область", 7);
         m.put("івано-франківська область", 8);
-        m.put("київська область",          9);
-        m.put("кіровоградська область",   10);
-        m.put("луганська область",        11);
-        m.put("львівська область",        12);
-        m.put("миколаївська область",     13);
-        m.put("одеська область",          14);
-        m.put("полтавська область",       15);
-        m.put("рівненська область",       16);
-        m.put("сумська область",          17);
-        m.put("тернопільська область",    18);
-        m.put("харківська область",       19);
-        m.put("херсонська область",       20);
-        m.put("хмельницька область",      21);
-        m.put("черкаська область",        22);
-        m.put("чернівецька область",      23);
-        m.put("чернігівська область",     24);
-        m.put("київ",                     25);
-        m.put("м. київ",                  25);
-        // English names (Nominatim fallback)
-        m.put("vinnytsia oblast",          1);
-        m.put("volyn oblast",              2);
-        m.put("dnipropetrovsk oblast",     3);
-        m.put("donetsk oblast",            4);
-        m.put("zhytomyr oblast",           5);
-        m.put("zakarpattia oblast",        6);
-        m.put("zaporizhzhia oblast",       7);
-        m.put("ivano-frankivsk oblast",    8);
-        m.put("kyiv oblast",               9);
-        m.put("kirovohrad oblast",        10);
-        m.put("luhansk oblast",           11);
-        m.put("lviv oblast",              12);
-        m.put("mykolaiv oblast",          13);
-        m.put("odessa oblast",            14);
-        m.put("poltava oblast",           15);
-        m.put("rivne oblast",             16);
-        m.put("sumy oblast",              17);
-        m.put("ternopil oblast",          18);
-        m.put("kharkiv oblast",           19);
-        m.put("kherson oblast",           20);
-        m.put("khmelnytskyi oblast",      21);
-        m.put("cherkasy oblast",          22);
-        m.put("chernivtsi oblast",        23);
-        m.put("chernihiv oblast",         24);
-        m.put("kyiv city",                25);
+        m.put("київська область", 9);
+        m.put("кіровоградська область", 10);
+        m.put("луганська область", 11);
+        m.put("львівська область", 12);
+        m.put("миколаївська область", 13);
+        m.put("одеська область", 14);
+        m.put("полтавська область", 15);
+        m.put("рівненська область", 16);
+        m.put("сумська область", 17);
+        m.put("тернопільська область", 18);
+        m.put("харківська область", 19);
+        m.put("херсонська область", 20);
+        m.put("хмельницька область", 21);
+        m.put("черкаська область", 22);
+        m.put("чернівецька область", 23);
+        m.put("чернігівська область", 24);
+        m.put("київ", 25);
+        m.put("м. київ", 25);
+        m.put("vinnytsia oblast", 1);
+        m.put("volyn oblast", 2);
+        m.put("dnipropetrovsk oblast", 3);
+        m.put("donetsk oblast", 4);
+        m.put("zhytomyr oblast", 5);
+        m.put("zakarpattia oblast", 6);
+        m.put("zaporizhzhia oblast", 7);
+        m.put("ivano-frankivsk oblast", 8);
+        m.put("kyiv oblast", 9);
+        m.put("kirovohrad oblast", 10);
+        m.put("luhansk oblast", 11);
+        m.put("lviv oblast", 12);
+        m.put("mykolaiv oblast", 13);
+        m.put("odessa oblast", 14);
+        m.put("poltava oblast", 15);
+        m.put("rivne oblast", 16);
+        m.put("sumy oblast", 17);
+        m.put("ternopil oblast", 18);
+        m.put("kharkiv oblast", 19);
+        m.put("kherson oblast", 20);
+        m.put("khmelnytskyi oblast", 21);
+        m.put("cherkasy oblast", 22);
+        m.put("chernivtsi oblast", 23);
+        m.put("chernihiv oblast", 24);
+        m.put("kyiv city", 25);
         return Collections.unmodifiableMap(m);
     }
 }

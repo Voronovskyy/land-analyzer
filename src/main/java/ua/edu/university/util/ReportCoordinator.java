@@ -7,12 +7,7 @@ import javafx.scene.image.WritableImage;
 import javafx.scene.web.WebView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import ua.edu.university.api.CountryContextService;
-import ua.edu.university.api.ElevationApiService;
-import ua.edu.university.api.GeoApiService;
-import ua.edu.university.api.InsolationApiService;
-import ua.edu.university.api.OverpassApiService;
-import ua.edu.university.api.WeatherApiService;
+import ua.edu.university.api.*;
 import ua.edu.university.model.Coordinate;
 
 import javax.imageio.ImageIO;
@@ -26,23 +21,25 @@ import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 
 /**
- * Координатор процесу створення комплексного звіту.
- * Керує послідовним перемиканням картографічних шарів, запитами до ШІ
- * та синхронізацією графічних знімків для фінального PDF.
+ * Оркеструє повний конвеєр генерації PDF-звіту:
+ * збір даних з усіх API (фаза 1), послідовне захоплення знімків
+ * картографічних шарів через WebView (фаза 2) та збірка PDF (фаза 3).
+ * Використовує {@code CompletableFuture} для асинхронного запуску
+ * і {@code CountDownLatch} для синхронізації знімків на FX-потоці.
  */
 public class ReportCoordinator {
     private static final Logger logger = LoggerFactory.getLogger(ReportCoordinator.class);
     private static final String TEMP_DIR = "Reports/temp/";
-    private static final String IMG_SCHEME          = TEMP_DIR + "scheme.png";
-    private static final String IMG_TERRAIN         = TEMP_DIR + "terrain.png";
-    private static final String IMG_DEM             = TEMP_DIR + "dem.png";
-    private static final String IMG_NDVI            = TEMP_DIR + "ndvi.png";
-    private static final String IMG_SATELLITE       = TEMP_DIR + "satellite.png";
-    private static final String IMG_3D              = TEMP_DIR + "3d_wireframe.png";
-    private static final String IMG_SLOPE           = TEMP_DIR + "slope.png";
-    private static final String IMG_WEATHER_CHART   = TEMP_DIR + "weather_chart.png";
+    private static final String IMG_SCHEME = TEMP_DIR + "scheme.png";
+    private static final String IMG_TERRAIN = TEMP_DIR + "terrain.png";
+    private static final String IMG_DEM = TEMP_DIR + "dem.png";
+    private static final String IMG_NDVI = TEMP_DIR + "ndvi.png";
+    private static final String IMG_SATELLITE = TEMP_DIR + "satellite.png";
+    private static final String IMG_3D = TEMP_DIR + "3d_wireframe.png";
+    private static final String IMG_SLOPE = TEMP_DIR + "slope.png";
+    private static final String IMG_WEATHER_CHART = TEMP_DIR + "weather_chart.png";
     private static final String IMG_INFRA_ANNOTATED = TEMP_DIR + "infra_annotated.png";
-    private static final String IMG_ANNUAL_CHART    = TEMP_DIR + "annual_chart.png";
+    private static final String IMG_ANNUAL_CHART = TEMP_DIR + "annual_chart.png";
     private final WebView webView;
     private final PdfReportService pdfService;
     private final ClaudeAnalysisService geminiService;
@@ -54,6 +51,22 @@ public class ReportCoordinator {
     private final ElevationApiService elevationApiService;
 
     private final Map<String, String> aiAnalyses = new HashMap<>();
+
+    // ─── Контейнери даних ────────────────────────────────────────
+
+    private record ReportData(
+            JsonObject climate, JsonObject infra,
+            String dayLength, JsonObject country, JsonObject geoAddress,
+            JsonArray poiData, double[] cornerElevations,
+            File weatherChart, File annualChart, double suitability) {
+    }
+
+    private record CapturedLayers(
+            File scheme, File terrain, File dem, File ndvi,
+            File satellite, File model3d, File slope, File infraAnnotated) {
+    }
+
+    // ─── Конструктор ─────────────────────────────────────────────
 
     public ReportCoordinator(WebView webView) {
         this.webView = webView;
@@ -67,9 +80,8 @@ public class ReportCoordinator {
         this.elevationApiService = new ElevationApiService();
     }
 
-    /**
-     * Запускає асинхронний ланцюжок операцій для створення звіту.
-     */
+    // ─── Точка входу ─────────────────────────────────────────────
+
     public void runReportingSequence(String pdfPath, String title, String area,
                                      String priceUah, String priceUsd,
                                      double elevation, double suitability,
@@ -78,156 +90,21 @@ public class ReportCoordinator {
                                      Set<String> selectedLayers,
                                      boolean isAiEnabled,
                                      Consumer<String> statusUpdater) {
-
         aiAnalyses.clear();
-        long totalStartTime = System.currentTimeMillis();
+        long startTime = System.currentTimeMillis();
 
         CompletableFuture.runAsync(() -> {
             try {
-                // --- БЛОК 1: ЗБІР ФІЗИЧНИХ ТА КЛІМАТИЧНИХ ДАНИХ (Паралельно) ---
-                updateStatus(statusUpdater, "Збір кліматичних показників (Open-Meteo)...");
-                JsonObject climateData = weatherService.getClimateStatistics(lat, lon);
+                ReportData data = collectApiData(lat, lon, boundaries, elevation, statusUpdater);
+                CapturedLayers layers = captureMapLayers(lat, lon, elevation, boundaries,
+                        selectedLayers, isAiEnabled, data.infra(), statusUpdater);
 
-                updateStatus(statusUpdater, "Завантаження даних за останній місяць...");
-                JsonObject monthlyData = weatherService.getMonthlyData(lat, lon);
-
-                updateStatus(statusUpdater, "Аналіз інженерних мереж (Overpass API)...");
-                JsonObject infraDetails = overpassService.getInfrastructureDetails(lat, lon);
-
-                updateStatus(statusUpdater, "Розрахунок інсоляції та регіональних даних...");
-                String dayLength = insolationService.getDayLength(lat, lon);
-                JsonObject countryContext = countryService.getRegionalContext();
-
-                updateStatus(statusUpdater, "Визначення адресних даних...");
-                JsonObject geoAddress = geoApiService.getReverseGeocode(lat, lon);
-
-                updateStatus(statusUpdater, "Аналіз мікрооточення (POI 2 км)...");
-                JsonArray poiData = overpassService.getNearbyPOIs(lat, lon);
-
-                updateStatus(statusUpdater, "Висоти кутів ділянки...");
-                double[] cornerElevations = fetchCornerElevations(boundaries);
-
-                updateStatus(statusUpdater, "Річний кліматичний архів...");
-                JsonObject annualMonthly = weatherService.getYearlyMonthlyData(lat, lon);
-                File annualChartFile = (annualMonthly != null)
-                        ? MonthlyClimateChart.generate(annualMonthly, IMG_ANNUAL_CHART) : null;
-
-                // Повний розрахунок КП на основі всіх зібраних даних
-                final double finalSuitability = SuitabilityCalculator.calculate(elevation, infraDetails, climateData);
-
-                // Графік погоди
-                File weatherChartFile = null;
-                if (monthlyData != null) {
-                    updateStatus(statusUpdater, "Генерація кліматичного графіку...");
-                    weatherChartFile = captureWeatherChartSync(monthlyData);
-                }
-
-                // --- БЛОК 2: ВІЗУАЛЬНІ ШАРИ ТА ШІ ---
-
-                // Трохи віддаляємо карту перед серією скріншотів
-                zoomOutForCapture();
-
-                // 1. Схема
-                File imgScheme = null;
-                File imgInfraAnnotated = null;
-                if (selectedLayers.contains("SCHEME")) {
-                    aiAnalyses.put("INFRASTRUCTURE", fetchAnalysis(isAiEnabled, "INFRASTRUCTURE", lat, lon, statusUpdater));
-                    waitForTilesSync();
-                    imgScheme = captureSnapshotSync(IMG_SCHEME);   // з паспортом → карта стор.1
-
-                    // Для секції 5: знімаємо без паспорту, потім відновлюємо
-                    closePopupSync();
-                    File imgClean = captureSnapshotSync(IMG_INFRA_ANNOTATED);
-                    openPopupSync();
-
-                    if (imgClean != null) {
-                        updateStatus(statusUpdater, "Анотація транспортної доступності...");
-                        imgInfraAnnotated = InfraAnnotator.annotate(imgClean, lat, lon, infraDetails, IMG_INFRA_ANNOTATED);
-                    }
-                }
-
-                // 2. Рельєф
-                File imgTerrain = null;
-                if (selectedLayers.contains("TERRAIN")) {
-                    syncLayerChange("terrainGroup");
-                    aiAnalyses.put("TERRAIN", fetchAnalysis(isAiEnabled, "TERRAIN", lat, lon, statusUpdater));
-                    imgTerrain = captureSnapshotSync(IMG_TERRAIN);
-                }
-
-                // 3. Висоти
-                File imgDem = null;
-                if (selectedLayers.contains("DEM")) {
-                    syncLayerChange("demLayer");
-                    aiAnalyses.put("DEM", fetchAnalysis(isAiEnabled, "DEM", lat, lon, statusUpdater));
-                    imgDem = captureSnapshotSync(IMG_DEM);
-                }
-
-                // 4. Вегетація
-                File imgNdvi = null;
-                if (selectedLayers.contains("NDVI")) {
-                    syncLayerChange("ndviLayer");
-                    aiAnalyses.put("NDVI", fetchAnalysis(isAiEnabled, "NDVI", lat, lon, statusUpdater));
-                    imgNdvi = captureSnapshotSync(IMG_NDVI);
-                }
-
-                // 5. Супутник
-                File imgSat = null;
-                if (selectedLayers.contains("SATELLITE")) {
-                    syncLayerChange("satellite");
-                    aiAnalyses.put("RETROSPECTIVE", fetchAnalysis(isAiEnabled, "RETROSPECTIVE", lat, lon, statusUpdater));
-                    imgSat = captureSnapshotSync(IMG_SATELLITE);
-                }
-
-                // 6. 3D Модель
-                File img3d = null;
-                if (selectedLayers.contains("3D")) {
-                    updateStatus(statusUpdater, "Генерація 3D-моделі...");
-                    img3d = capture3DModelSnapshot(boundaries, elevation);
-                }
-
-                // 7. Hillshade / Slope
-                File imgSlope = null;
-                if (selectedLayers.contains("SLOPE")) {
-                    syncLayerChange("slopeLayer");
-                    aiAnalyses.put("SLOPE", fetchAnalysis(isAiEnabled, "SLOPE", lat, lon, statusUpdater));
-                    imgSlope = captureSnapshotSync(IMG_SLOPE);
-                }
-
-                // --- БЛОК 3: ФІНАЛЬНА ЗБІРКА PDF ---
-                long duration = (System.currentTimeMillis() - totalStartTime) / 1000;
-                updateStatus(statusUpdater, "Збірка комплексного звіту... (" + duration + "с)");
-
+                long elapsed = (System.currentTimeMillis() - startTime) / 1000;
+                updateStatus(statusUpdater, "Збірка комплексного звіту... (" + elapsed + "с)");
                 validateAnalyses();
 
-                final File fScheme           = imgScheme;
-                final File fTerrain          = imgTerrain;
-                final File fDem              = imgDem;
-                final File fNdvi             = imgNdvi;
-                final File fSat              = imgSat;
-                final File f3d               = img3d;
-                final File fSlope            = imgSlope;
-                final File fWeatherChart     = weatherChartFile;
-                final File fInfraAnnotated      = imgInfraAnnotated;
-                final JsonObject fGeoAddress    = geoAddress;
-                final JsonArray  fPoiData       = poiData;
-                final double[]   fCornerElevs   = cornerElevations;
-                final File       fAnnualChart   = annualChartFile;
-
-                Platform.runLater(() -> {
-                    try {
-                        pdfService.generateReportExtended(pdfPath, title, area, priceUah, priceUsd,
-                                elevation, finalSuitability, boundaries,
-                                fScheme, fTerrain, fDem, fNdvi, fSat, f3d,
-                                fSlope, fWeatherChart, fInfraAnnotated,
-                                aiAnalyses, climateData, infraDetails, dayLength, countryContext, fGeoAddress,
-                                fPoiData, fCornerElevs, fAnnualChart);
-
-                        finalizeAll(pdfPath, statusUpdater, fScheme, fTerrain, fDem, fNdvi, fSat, f3d, fSlope, fWeatherChart, fInfraAnnotated, fAnnualChart);
-                    } catch (Exception e) {
-                        logger.error("Помилка PDF: {}", e.getMessage());
-                        statusUpdater.accept("Помилка створення PDF!");
-                    }
-                });
+                Platform.runLater(() -> assemblePdf(pdfPath, title, area, priceUah, priceUsd,
+                        elevation, boundaries, data, layers, statusUpdater));
 
             } catch (Exception e) {
                 logger.error("Критичний збій: {}", e.getMessage());
@@ -236,10 +113,149 @@ public class ReportCoordinator {
         });
     }
 
-    // Методи captureSnapshotSync, syncLayerChange, fetchAnalysis залишаються без змін,
-    // як у вашому оригіналі, але додаємо метод оновлення статусу для зручності.
+    // ─── Блок 1: Збір даних з API ────────────────────────────────
 
-    private String fetchAnalysis(boolean isAiEnabled, String type, double lat, double lon, Consumer<String> statusUpdater) {
+    private ReportData collectApiData(double lat, double lon, List<Coordinate> boundaries,
+                                      double elevation, Consumer<String> statusUpdater) throws Exception {
+        updateStatus(statusUpdater, "Збір кліматичних показників (Open-Meteo)...");
+        JsonObject climateData = weatherService.getClimateStatistics(lat, lon);
+
+        updateStatus(statusUpdater, "Завантаження даних за останній місяць...");
+        JsonObject monthlyData = weatherService.getMonthlyData(lat, lon);
+
+        updateStatus(statusUpdater, "Аналіз інженерних мереж (Overpass API)...");
+        JsonObject infraDetails = overpassService.getInfrastructureDetails(lat, lon);
+
+        updateStatus(statusUpdater, "Розрахунок інсоляції та регіональних даних...");
+        String dayLength = insolationService.getDayLength(lat, lon);
+        JsonObject country = countryService.getRegionalContext();
+
+        updateStatus(statusUpdater, "Визначення адресних даних...");
+        JsonObject geoAddress = geoApiService.getReverseGeocode(lat, lon);
+
+        updateStatus(statusUpdater, "Аналіз мікрооточення (POI 2 км)...");
+        JsonArray poiData = overpassService.getNearbyPOIs(lat, lon);
+
+        updateStatus(statusUpdater, "Висоти кутів ділянки...");
+        double[] cornerElevations = fetchCornerElevations(boundaries);
+
+        updateStatus(statusUpdater, "Річний кліматичний архів...");
+        JsonObject annualMonthly = weatherService.getYearlyMonthlyData(lat, lon);
+        File annualChartFile = (annualMonthly != null)
+                ? MonthlyClimateChart.generate(annualMonthly, IMG_ANNUAL_CHART) : null;
+
+        double finalSuitability = SuitabilityCalculator.calculate(elevation, infraDetails, climateData);
+
+        File weatherChartFile = null;
+        if (monthlyData != null) {
+            updateStatus(statusUpdater, "Генерація кліматичного графіку...");
+            weatherChartFile = captureWeatherChartSync(monthlyData);
+        }
+
+        return new ReportData(climateData, infraDetails, dayLength, country, geoAddress,
+                poiData, cornerElevations, weatherChartFile, annualChartFile, finalSuitability);
+    }
+
+    // ─── Блок 2: Знімки картографічних шарів ────────────────────
+
+    private CapturedLayers captureMapLayers(double lat, double lon, double elevation,
+                                            List<Coordinate> boundaries,
+                                            Set<String> selectedLayers, boolean isAiEnabled,
+                                            JsonObject infraDetails,
+                                            Consumer<String> statusUpdater) throws Exception {
+        zoomOutForCapture();
+
+        File imgScheme = null, imgInfraAnnotated = null;
+        if (selectedLayers.contains("SCHEME")) {
+            aiAnalyses.put("INFRASTRUCTURE", fetchAnalysis(isAiEnabled, "INFRASTRUCTURE", lat, lon, statusUpdater));
+            waitForTilesSync();
+            imgScheme = captureSnapshotSync(IMG_SCHEME);
+
+            closePopupSync();
+            File imgClean = captureSnapshotSync(IMG_INFRA_ANNOTATED);
+            openPopupSync();
+            if (imgClean != null) {
+                updateStatus(statusUpdater, "Анотація транспортної доступності...");
+                imgInfraAnnotated = InfraAnnotator.annotate(imgClean, lat, lon, infraDetails, IMG_INFRA_ANNOTATED);
+            }
+        }
+
+        File imgTerrain = null;
+        if (selectedLayers.contains("TERRAIN")) {
+            syncLayerChange("terrainGroup");
+            aiAnalyses.put("TERRAIN", fetchAnalysis(isAiEnabled, "TERRAIN", lat, lon, statusUpdater));
+            imgTerrain = captureSnapshotSync(IMG_TERRAIN);
+        }
+
+        File imgDem = null;
+        if (selectedLayers.contains("DEM")) {
+            syncLayerChange("demLayer");
+            aiAnalyses.put("DEM", fetchAnalysis(isAiEnabled, "DEM", lat, lon, statusUpdater));
+            imgDem = captureSnapshotSync(IMG_DEM);
+        }
+
+        File imgNdvi = null;
+        if (selectedLayers.contains("NDVI")) {
+            syncLayerChange("ndviLayer");
+            aiAnalyses.put("NDVI", fetchAnalysis(isAiEnabled, "NDVI", lat, lon, statusUpdater));
+            imgNdvi = captureSnapshotSync(IMG_NDVI);
+        }
+
+        File imgSat = null;
+        if (selectedLayers.contains("SATELLITE")) {
+            syncLayerChange("satellite");
+            aiAnalyses.put("RETROSPECTIVE", fetchAnalysis(isAiEnabled, "RETROSPECTIVE", lat, lon, statusUpdater));
+            imgSat = captureSnapshotSync(IMG_SATELLITE);
+        }
+
+        File img3d = null;
+        if (selectedLayers.contains("3D")) {
+            updateStatus(statusUpdater, "Генерація 3D-моделі...");
+            img3d = capture3DModelSnapshot(boundaries, elevation);
+        }
+
+        File imgSlope = null;
+        if (selectedLayers.contains("SLOPE")) {
+            syncLayerChange("slopeLayer");
+            aiAnalyses.put("SLOPE", fetchAnalysis(isAiEnabled, "SLOPE", lat, lon, statusUpdater));
+            imgSlope = captureSnapshotSync(IMG_SLOPE);
+        }
+
+        return new CapturedLayers(imgScheme, imgTerrain, imgDem, imgNdvi, imgSat, img3d, imgSlope, imgInfraAnnotated);
+    }
+
+    // ─── Блок 3: Збірка PDF та завершення ────────────────────────
+
+    private void assemblePdf(String pdfPath, String title, String area,
+                             String priceUah, String priceUsd,
+                             double elevation, List<Coordinate> boundaries,
+                             ReportData data, CapturedLayers layers,
+                             Consumer<String> statusUpdater) {
+        try {
+            pdfService.generateReportExtended(
+                    pdfPath, title, area, priceUah, priceUsd,
+                    elevation, data.suitability(), boundaries,
+                    layers.scheme(), layers.terrain(), layers.dem(),
+                    layers.ndvi(), layers.satellite(), layers.model3d(),
+                    layers.slope(), data.weatherChart(), layers.infraAnnotated(),
+                    aiAnalyses, data.climate(), data.infra(), data.dayLength(),
+                    data.country(), data.geoAddress(),
+                    data.poiData(), data.cornerElevations(), data.annualChart());
+
+            finalizeAll(pdfPath, statusUpdater,
+                    layers.scheme(), layers.terrain(), layers.dem(), layers.ndvi(),
+                    layers.satellite(), layers.model3d(), layers.slope(), layers.infraAnnotated(),
+                    data.weatherChart(), data.annualChart());
+        } catch (Exception e) {
+            logger.error("Помилка PDF: {}", e.getMessage());
+            statusUpdater.accept("Помилка створення PDF!");
+        }
+    }
+
+    // ─── AI аналіз ───────────────────────────────────────────────
+
+    private String fetchAnalysis(boolean isAiEnabled, String type,
+                                 double lat, double lon, Consumer<String> statusUpdater) {
         if (!isAiEnabled) return "[AI DISABLED] Технічний аналіз для " + type;
         updateStatus(statusUpdater, "AI аналіз: " + type + "...");
         return switch (type) {
@@ -248,13 +264,123 @@ public class ReportCoordinator {
             case "DEM" -> geminiService.getDemAnalysis(lat, lon);
             case "NDVI" -> geminiService.getNdviAnalysis(lat, lon);
             case "RETROSPECTIVE" -> geminiService.getSatelliteRetrospective(lat, lon);
-            case "SLOPE"         -> geminiService.getSlopeAnalysis(lat, lon);
+            case "SLOPE" -> geminiService.getSlopeAnalysis(lat, lon);
             default -> "Дані відсутні.";
         };
     }
 
-    private void updateStatus(Consumer<String> updater, String msg) {
-        Platform.runLater(() -> updater.accept(msg));
+    private void validateAnalyses() {
+        for (String key : new String[]{"INFRASTRUCTURE", "TERRAIN", "DEM", "NDVI", "RETROSPECTIVE", "SLOPE"}) {
+            aiAnalyses.putIfAbsent(key, "Дані наразі недоступні.");
+        }
+    }
+
+    // ─── WebView синхронізація ────────────────────────────────────
+
+    private void zoomOutForCapture() throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            try {
+                webView.getEngine().executeScript(
+                        "window.tileLoadComplete = false; window.tileLoadingCount = 0;" +
+                                "map.setZoom(Math.max(10, map.getZoom() - 1));");
+            } catch (Exception e) {
+                logger.debug("Не вдалося виконати zoom-out: {}", e.getMessage());
+            } finally {
+                latch.countDown();
+            }
+        });
+        latch.await();
+        waitForTilesSync();
+    }
+
+    private void syncLayerChange(String layerVarName) throws Exception {
+        int timeoutMs = ConfigManager.getIntProperty("report.layer.switch.delay.ms");
+        CountDownLatch latch = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            try {
+                webView.getEngine().executeScript("showLayer('" + layerVarName + "');");
+                pollTilesReady(latch, System.currentTimeMillis(), timeoutMs);
+            } catch (Exception e) {
+                latch.countDown();
+            }
+        });
+        latch.await();
+    }
+
+    private void waitForTilesSync() throws Exception {
+        int timeoutMs = ConfigManager.getIntProperty("report.layer.switch.delay.ms");
+        CountDownLatch latch = new CountDownLatch(1);
+        Platform.runLater(() -> pollTilesReady(latch, System.currentTimeMillis(), timeoutMs));
+        latch.await();
+    }
+
+    private void pollTilesReady(CountDownLatch latch, long startMs, int timeoutMs) {
+        if (System.currentTimeMillis() - startMs >= timeoutMs) {
+            logger.warn("Таймаут очікування тайлів ({}мс), продовжуємо", timeoutMs);
+            latch.countDown();
+            return;
+        }
+        try {
+            boolean ready = Boolean.TRUE.equals(webView.getEngine().executeScript("!!window.tileLoadComplete"));
+            if (ready) {
+                latch.countDown();
+                return;
+            }
+        } catch (Exception e) {
+            latch.countDown();
+            return;
+        }
+        javafx.animation.PauseTransition pause =
+                new javafx.animation.PauseTransition(javafx.util.Duration.millis(300));
+        pause.setOnFinished(e -> pollTilesReady(latch, startMs, timeoutMs));
+        pause.play();
+    }
+
+    private void closePopupSync() throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            try {
+                webView.getEngine().executeScript("map.closePopup();");
+            } catch (Exception e) {
+                logger.debug("Не вдалося закрити popup: {}", e.getMessage());
+            }
+            latch.countDown();
+        });
+        latch.await();
+        Thread.sleep(450);
+    }
+
+    private void openPopupSync() throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            try {
+                webView.getEngine().executeScript(
+                        "if(window.plotLayer && window.plotLayer.openPopup) window.plotLayer.openPopup();");
+            } catch (Exception e) {
+                logger.debug("Не вдалося відкрити popup: {}", e.getMessage());
+            }
+            latch.countDown();
+        });
+        latch.await();
+    }
+
+    // ─── Знімки ──────────────────────────────────────────────────
+
+    private File captureSnapshotSync(String path) throws Exception {
+        CompletableFuture<File> future = new CompletableFuture<>();
+        Platform.runLater(() -> {
+            try {
+                WritableImage image = webView.snapshot(null, null);
+                File file = new File(path);
+                file.getParentFile().mkdirs();
+                ImageIO.write(javafx.embed.swing.SwingFXUtils.fromFXImage(image, null), "png", file);
+                future.complete(file);
+            } catch (Exception e) {
+                future.completeExceptionally(e);
+            }
+        });
+        return future.get();
     }
 
     private File captureWeatherChartSync(JsonObject dailyData) throws Exception {
@@ -279,7 +405,8 @@ public class ReportCoordinator {
         CompletableFuture<File> future = new CompletableFuture<>();
         Platform.runLater(() -> {
             try {
-                javafx.scene.canvas.Canvas canvas = LandParcel3dVisualizer.create3dPlot(boundaries, elevation, 1100, 660);
+                javafx.scene.canvas.Canvas canvas =
+                        LandParcel3dVisualizer.create3dPlot(boundaries, elevation, 1100, 660);
                 if (canvas == null) {
                     future.complete(null);
                     return;
@@ -296,97 +423,7 @@ public class ReportCoordinator {
         return future.get();
     }
 
-    /**
-     * Зменшує зум на 2 рівні перед серією скріншотів та очікує завантаження тайлів.
-     */
-    private void zoomOutForCapture() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-        Platform.runLater(() -> {
-            try {
-                webView.getEngine().executeScript(
-                        "window.tileLoadComplete = false; window.tileLoadingCount = 0;" +
-                        "map.setZoom(Math.max(10, map.getZoom() - 1));");
-            } catch (Exception ignored) {
-            } finally {
-                latch.countDown();
-            }
-        });
-        latch.await();
-        waitForTilesSync();
-    }
-
-    /**
-     * Перемикає шар та очікує доки всі тайли повністю завантажаться.
-     * Polling замість фіксованого delay: перевіряє window.tileLoadComplete кожні 300мс,
-     * з таймаутом report.layer.switch.delay.ms як страховкою.
-     */
-    private void syncLayerChange(String layerVarName) throws Exception {
-        int timeoutMs = ConfigManager.getIntProperty("report.layer.switch.delay.ms");
-        CountDownLatch latch = new CountDownLatch(1);
-        Platform.runLater(() -> {
-            try {
-                webView.getEngine().executeScript("showLayer('" + layerVarName + "');");
-                pollTilesReady(latch, System.currentTimeMillis(), timeoutMs);
-            } catch (Exception e) {
-                latch.countDown();
-            }
-        });
-        latch.await();
-    }
-
-    /**
-     * Очікує завантаження тайлів поточного шару перед першим скріншотом (без зміни шару).
-     */
-    private void waitForTilesSync() throws Exception {
-        int timeoutMs = ConfigManager.getIntProperty("report.layer.switch.delay.ms");
-        CountDownLatch latch = new CountDownLatch(1);
-        Platform.runLater(() -> pollTilesReady(latch, System.currentTimeMillis(), timeoutMs));
-        latch.await();
-    }
-
-    /**
-     * Рекурсивний polling на FX-потоці: перевіряє window.tileLoadComplete кожні 300мс.
-     * Завершується або при tileLoadComplete==true, або при перевищенні таймауту.
-     */
-    private void pollTilesReady(CountDownLatch latch, long startMs, int timeoutMs) {
-        if (System.currentTimeMillis() - startMs >= timeoutMs) {
-            logger.warn("Таймаут очікування тайлів ({}мс), продовжуємо", timeoutMs);
-            latch.countDown();
-            return;
-        }
-        try {
-            boolean ready = Boolean.TRUE.equals(webView.getEngine().executeScript("!!window.tileLoadComplete"));
-            if (ready) {
-                latch.countDown();
-                return;
-            }
-        } catch (Exception e) {
-            latch.countDown();
-            return;
-        }
-        javafx.animation.PauseTransition pause = new javafx.animation.PauseTransition(javafx.util.Duration.millis(300));
-        pause.setOnFinished(e -> pollTilesReady(latch, startMs, timeoutMs));
-        pause.play();
-    }
-
-    /**
-     * Виконує миттєвий скріншот поточного стану WebView.
-     */
-    private File captureSnapshotSync(String path) throws Exception {
-        CompletableFuture<File> future = new CompletableFuture<>();
-        Platform.runLater(() -> {
-            try {
-                WritableImage image = webView.snapshot(null, null);
-                File file = new File(path);
-                file.getParentFile().mkdirs();
-                ImageIO.write(javafx.embed.swing.SwingFXUtils.fromFXImage(image, null), "png", file);
-                future.complete(file);
-            } catch (Exception e) {
-                future.completeExceptionally(e);
-            }
-        });
-        return future.get();
-    }
+    // ─── Утиліти ─────────────────────────────────────────────────
 
     private double[] fetchCornerElevations(List<Coordinate> boundaries) {
         if (boundaries == null || boundaries.size() < 3) return null;
@@ -404,37 +441,10 @@ public class ReportCoordinator {
         }
     }
 
-    private void closePopupSync() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-        Platform.runLater(() -> {
-            try { webView.getEngine().executeScript("map.closePopup();"); } catch (Exception ignored) {}
-            latch.countDown();
-        });
-        latch.await();
-        Thread.sleep(450);  // дати WebView час перемалювати без попапу
+    private void updateStatus(Consumer<String> updater, String msg) {
+        Platform.runLater(() -> updater.accept(msg));
     }
 
-    private void openPopupSync() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-        Platform.runLater(() -> {
-            try { webView.getEngine().executeScript(
-                    "if(window.plotLayer && window.plotLayer.openPopup) window.plotLayer.openPopup();");
-            } catch (Exception ignored) {}
-            latch.countDown();
-        });
-        latch.await();
-    }
-
-    private void validateAnalyses() {
-        String[] keys = {"INFRASTRUCTURE", "TERRAIN", "DEM", "NDVI", "RETROSPECTIVE", "SLOPE"};
-        for (String key : keys) {
-            aiAnalyses.putIfAbsent(key, "Дані наразі недоступні.");
-        }
-    }
-
-    /**
-     * Очищає тимчасові файли та завершує роботу програми.
-     */
     private void finalizeAll(String path, Consumer<String> statusUpdater, File... files) {
         for (File f : files) {
             if (f != null && f.exists()) f.delete();
@@ -443,6 +453,7 @@ public class ReportCoordinator {
         try {
             java.awt.Desktop.getDesktop().open(new File(path));
         } catch (Exception e) {
+            logger.warn("Не вдалося відкрити PDF: {}", e.getMessage());
         }
         new java.util.Timer().schedule(new java.util.TimerTask() {
             @Override

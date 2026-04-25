@@ -10,6 +10,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 
+/**
+ * Базовий абстрактний клас для всіх API-сервісів.
+ * Інкапсулює HTTP-клієнт, логування запитів/відповідей та обробку HTTP-помилок.
+ * Конкретні сервіси наслідують цей клас і використовують sendGetRequest / sendPostRequest.
+ */
 public abstract class BaseApiService {
     private static final Logger logger = LoggerFactory.getLogger(BaseApiService.class);
     protected final HttpClient httpClient;

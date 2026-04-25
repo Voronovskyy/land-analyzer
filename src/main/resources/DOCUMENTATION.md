@@ -1,88 +1,134 @@
-# 🌍 Land Plot Analyzer v2.1
+# Land Plot Analyzer — Технічна документація
 
-## Технічна документація інтелектуальної ГІС-системи
-
-Ця документація описує оновлену архітектуру, розширені модулі аналітики та інтеграцію мультимодального ШІ у систему аналізу земельних ділянок.
+## Інтелектуальна ГІС-система аналізу земельних ділянок
 
 ---
 
-## 📂 1. Структура пакетів (Package Structure)
+## 1. Архітектура системи
 
-Всі компоненти системи розташовані в базовому пакеті: `ua.edu.university`.
+Проект побудований за шаруватою архітектурою без DI-контейнера. Усі залежності
+створюються вручну в конструкторах контролерів/координаторів.
 
-| Пакет | Клас | Роль у системі (v2.1) |
-| --- | --- | --- |
-| **main** | `Main` | Точка входу JavaFX. Керує життєвим циклом додатка. |
-| **api** | `GeminiAnalysisService` | **AI Cognitive Engine.** Виконує експертний аналіз через Google Gemini API. |
-| **api** | `WeatherApiService` | **Climate Client.** Отримує ретроспективні дані погоди з Open-Meteo. |
-| **api** | `OverpassApiService` | **Infrastructure Client.** Аналізує близькість ЛЕП та доріг через OSM. |
-| **api** | `InsolationApiService` | **Solar Engine.** Розраховує тривалість світлового дня. |
-| **util** | `GeoAnalysisUtil` | **Math Engine.** Обчислює площу (Гаусс) з врахуванням `Locale.US`. |
-| **util** | `LandParcel3dVisualizer` | **3D Engine.** Будує аксонометричну модель рельєфу на Canvas. |
-| **util** | `MapHtmlBuilder` | **Frontend Generator.** Створює HTML/JS код для Leaflet (NDVI, Satellite). |
-| **util** | `PdfReportService` | **Document Engine.** Формує розширений PDF (Climate + Infra + AI). |
-| **util** | `ReportCoordinator` | **Orchestrator.** Керує асинхронним збором даних з усіх API. |
-
----
-
-## 🛠 2. Детальний опис ключових компонентів
-
-### 🧠 `api/GeminiAnalysisService.java`
-
-Інтелектуальна надбудова для якісної оцінки території.
-
-* **Функціонал:** Ролеве моделювання (урбаніст, еколог, гідролог) для інтерпретації геоданих.
-* **Метод:** Використання Zero-shot Prompting для генерації висновків українською мовою.
-
-### 📐 `util/GeoAnalysisUtil.java`
-
-Математичний апарат системи.
-
-* **Точність:** Використання **JTS** та формули Shoelace.
-* **Уніфікація:** Примусове використання `Locale.US` для коректної передачі координат у міжнародні API (запобігання помилок з комами/крапками).
-
-### 🏗 `util/LandParcel3dVisualizer.java`
-
-Модуль тривимірної візуалізації.
-
-* **Візуалізація:** Перетворення масиву висот у 3D Wireframe-модель. Дозволяє візуально оцінити крутизну схилів ділянки.
-
-### 🕒 `util/ReportCoordinator.java`
-
-Центральний вузол керування асинхронними потоками.
-
-1. **Паралельний збір:** Одночасно запитує Клімат, Інсоляцію та Інфраструктуру.
-2. **Синхронізація:** Використовує `CountDownLatch` для гарантованого завантаження шарів карти перед знімком.
-3. **Фіналізація:** Збирає `JsonObject` з усіх сервісів та передає в `PdfReportService`.
+```
+ua.edu.university
+├── Main / Launcher          — точка входу JavaFX + JPMS-обхід
+├── ui/
+│   └── MainController       — єдиний FXML-контролер; прив'язаний до main_view.fxml
+├── model/
+│   └── Coordinate           — WGS-84 точка + межі полігону + висота + suitability
+├── api/                     — усі класи наслідують BaseApiService
+│   ├── BaseApiService        — HttpClient, логування, HTTP-помилки
+│   ├── GeoApiService         — геокодування (Nominatim)
+│   ├── CadastreApiService    — кадастрові дані (cadastre_data.json mock)
+│   ├── WeatherApiService     — клімат 30 д. + місячний архів (Open-Meteo)
+│   ├── ElevationApiService   — висота над рівнем моря (5 спроб, пауза 3 с)
+│   ├── OverpassApiService    — інфраструктура + POI (OSM Overpass)
+│   ├── InsolationApiService  — тривалість світлового дня
+│   ├── DomRiaApiService      — ринкова ціна м² (DOM.RIA)
+│   ├── ExchangeRateService   — курс USD (НБУ / ПриватБанк)
+│   └── CountryContextService — регіональний контекст
+└── util/
+    ├── ConfigManager         — singleton; application.properties
+    ├── GeoAnalysisUtil       — площа: формула Shoelace + JTS
+    ├── LandAnalysisService   — оціночна вартість UAH / USD
+    ├── SuitabilityCalculator — індекс придатності (висота + інфра + клімат)
+    ├── MapHtmlBuilder        — генерація Leaflet HTML для WebView
+    ├── LandParcel3dVisualizer— 3D wireframe на JavaFX Canvas
+    ├── Land3DView            — JavaFX Stage для 3D-перегляду
+    ├── WeatherChartGenerator — JavaFX Canvas: графік погоди 30 днів
+    ├── MonthlyClimateChart   — Java2D: річна кліматична діаграма (12 міс.)
+    ├── InfraAnnotator        — анотація транспортної доступності на знімку
+    ├── PromptLoader          — завантаження промтів з /prompts/*.md + кеш
+    ├── ClaudeAnalysisService — Claude API (Anthropic); 6 ролей аналізу
+    ├── PdfCellHelper         — статичні фабрики комірок + кольори PDF
+    ├── MapExtrasBuilder      — таблиці для 6 сторінок карт у PDF
+    ├── PdfReportService      — OpenPDF; 6–8 сторінок зі шрифтом кирилиці
+    ├── ReportCoordinator     — 3-фазний конвеєр звіту
+    └── FileUtil              — генерація шляху до PDF
+```
 
 ---
 
-## 📄 3. Структура PDF-звіту (Розширена)
+## 2. Ключові компоненти
 
-Система автоматично генерує документ (6-8 сторінок):
+### `ReportCoordinator` — оркестратор конвеєру
 
-1. **Економічний паспорт:** Площа, вартість (UAH/USD), індекс придатності.
-2. **Геофізичний паспорт:** Кліматичні дані (опади, температури) та сонячна активність.
-3. **Інфраструктурний паспорт:** Відстані до ЛЕП, доріг та водойм (Overpass дані).
-4. **Графічна аналітика:** 2D-карти (NDVI, DEM, Sat) + 3D-модель рельєфу.
-5. **AI-Експертиза:** Детальні висновки Gemini по кожному аспекту ділянки.
+Виконує три фази послідовно:
+
+| Фаза | Що відбувається |
+|------|-----------------|
+| **1. collectApiData** | Паралельний збір клімату, інфраструктури, POI, кутових висот, інсоляції, геоадреси |
+| **2. captureMapLayers** | Послідовне перемикання шарів Leaflet + `CountDownLatch` + знімок WebView |
+| **3. assemblePdf** | Виклик `PdfReportService` + видалення тимчасових файлів + відкриття PDF |
+
+Передача даних між фазами — через private records `ReportData` і `CapturedLayers`.
+
+### `ClaudeAnalysisService` — AI-аналіз
+
+- Звертається до `https://api.anthropic.com/v1/messages`
+- API-ключ: змінна середовища `ANTHROPIC_API_KEY`
+- Модель і ліміт токенів — з `application.properties` (`ai.claude.model`, `ai.claude.max.tokens`)
+- 6 методів аналізу: інфраструктура, рельєф, DEM, NDVI, супутник, схили
+- Промти зберігаються в `src/main/resources/prompts/*.md`; завантажуються через `PromptLoader`
+
+### `PromptLoader` — управління промтами
+
+Формат файлу `prompts/<name>.md`:
+```
+role: <текст ролі одним рядком>
+---
+<тіло задачі з плейсхолдерами %f %f для lat/lon>
+```
+Результат кешується у `ConcurrentHashMap` — повторне читання з диску не відбувається.
+
+### `ElevationApiService` — надійний запит висоти
+
+При збої HTTP повторює запит до 5 разів з паузою 3 секунди між спробами.
+Після 5-ї невдачі повертає значення `elevation.default` з `application.properties`.
+
+### `PdfReportService` — структура PDF
+
+| Сторінка | Вміст |
+|----------|-------|
+| 1 | Титульна: назва, площа, ціна UAH/USD, індекс придатності, висота |
+| 2 | Схема інфраструктури + POI-таблиця + AI-аналіз (Claude) |
+| 3 | Топографічний рельєф + таблиця перепаду висот кутів |
+| 4 | DEM + ризик підтоплення за висотою |
+| 5 | NDVI + агрокліматичний індекс Де Мартонна |
+| 6 | Супутниковий знімок + річна кліматична діаграма |
+| 7 | 3D-модель + графік погоди 30 днів |
+| 8 | Карта схилів + аналіз придатності за ухилом |
+
+Шаблонні примітиви (кольори, відступи, шрифти) — у `PdfCellHelper` (import static).
+Таблиці для сторінок карт — у `MapExtrasBuilder` (import static).
 
 ---
 
-## ⚙️ 4. Ресурси та конфігурація
+## 3. Конфігурація (`application.properties`)
 
-* `application.properties`: Глобальні налаштування (API ключі, кольори PDF, затримки шарів).
-* `pdf.font.path`: Шлях до `arial.ttf` для підтримки кирилиці.
-* **Локалізація:** Стандартизація форматів чисел для сумісності з REST API.
+| Ключ | Призначення |
+|------|-------------|
+| `map.default.lat/lon/zoom` | Початковий центр карти (Україна) |
+| `land.price.ngo_per_sqm` | Ставка НГО грн/м² для базової оцінки |
+| `ai.claude.model` | ID моделі Claude (напр. `claude-opus-4-7`) |
+| `ai.claude.max.tokens` | Ліміт токенів у відповіді |
+| `ai.claude.language` | Мова відповіді (напр. `Відповідай українською`) |
+| `ai.claude.sentence.limit` | Макс. кількість речень у відповіді |
+| `analysis.ai.enabled` | `true/false` — стан чекбокса AI за замовчуванням |
+| `elevation.default` | Запасна висота при 5 невдалих запитах |
+| `report.layer.switch.delay.ms` | Таймаут очікування тайлів Leaflet |
+| `report.final.exit.delay.ms` | Затримка перед `System.exit(0)` після PDF |
+| `pdf.font.path` | Шлях до TTF-шрифту з кирилицею |
 
 ---
 
-## 🚀 5. Технологічна новизна (PhD level)
+## 4. Технічні обмеження
 
-* **Інтелектуалізація ГІС:** Поєднання класичної картографії з когнітивними можливостями LLM.
-* **Мультимодальність:** Одночасна обробка векторних (GeoJSON), растрових (Satellite) та кліматичних (ERA5) даних.
-* **Цифровий двійник:** Створення комплексного набору характеристик об'єкта дослідження за один робочий цикл.
+- **`Locale.US` обов'язково** у всіх місцях форматування координат і чисел для API-запитів.
+- **JavaFX Application Thread** — WebView-snapshot, WeatherChartGenerator і Land3DView викликаються лише через `Platform.runLater`.
+- **CountDownLatch у captureMapLayers** — не видаляти; гарантує завершення рендерингу тайлів перед знімком.
+- **CadastreApiService** — використовує локальний файл `cadastre_data.json`; реальний API ДЗК не підключений.
 
 ---
 
-*Документація актуальна для версії 2.1 від 04.03.2026.*
+*Актуально на 25.04.2026*
