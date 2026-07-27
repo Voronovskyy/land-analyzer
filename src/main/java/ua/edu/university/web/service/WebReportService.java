@@ -126,10 +126,14 @@ public class WebReportService {
             Set<String> layers = new HashSet<>(req.getLayers() != null ? req.getLayers() : List.of());
             Map<String, String> aiAnalyses = new HashMap<>();
 
+            StaticMapService.PlotInfo plotInfo = new StaticMapService.PlotInfo(
+                    req.getTitle(), req.getAreaHa(), req.getPriceUah(), req.getPriceUsd(),
+                    req.getElevation(), lat, lon);
+
             File imgScheme = null, imgInfraAnnotated = null;
             if (layers.contains("SCHEME")) {
                 logger.info("Generating SCHEME map image");
-                imgScheme = mapService.generate(lat, lon, "SCHEME", boundaries, tempDir + "scheme.png");
+                imgScheme = mapService.generate(lat, lon, "SCHEME", boundaries, tempDir + "scheme.png", plotInfo);
                 if (req.isAiEnabled()) {
                     aiAnalyses.put("INFRASTRUCTURE", claudeService.getInfrastructureAnalysis(lat, lon));
                 }
@@ -142,7 +146,7 @@ public class WebReportService {
             File imgTerrain = null;
             if (layers.contains("TERRAIN")) {
                 logger.info("Generating TERRAIN map image");
-                imgTerrain = mapService.generate(lat, lon, "TERRAIN", boundaries, tempDir + "terrain.png");
+                imgTerrain = mapService.generate(lat, lon, "TERRAIN", boundaries, tempDir + "terrain.png", plotInfo);
                 if (req.isAiEnabled()) {
                     aiAnalyses.put("TERRAIN", claudeService.getTerrainAnalysis(lat, lon));
                 }
@@ -151,7 +155,7 @@ public class WebReportService {
             File imgDem = null;
             if (layers.contains("DEM")) {
                 logger.info("Generating DEM map image");
-                imgDem = mapService.generate(lat, lon, "DEM", boundaries, tempDir + "dem.png");
+                imgDem = mapService.generate(lat, lon, "DEM", boundaries, tempDir + "dem.png", plotInfo);
                 if (req.isAiEnabled()) {
                     aiAnalyses.put("DEM", claudeService.getDemAnalysis(lat, lon));
                 }
@@ -160,7 +164,7 @@ public class WebReportService {
             File imgNdvi = null;
             if (layers.contains("NDVI")) {
                 logger.info("Generating NDVI map image");
-                imgNdvi = mapService.generate(lat, lon, "NDVI", boundaries, tempDir + "ndvi.png");
+                imgNdvi = mapService.generate(lat, lon, "NDVI", boundaries, tempDir + "ndvi.png", plotInfo);
                 if (req.isAiEnabled()) {
                     aiAnalyses.put("NDVI", claudeService.getNdviAnalysis(lat, lon));
                 }
@@ -169,7 +173,7 @@ public class WebReportService {
             File imgSatellite = null;
             if (layers.contains("SATELLITE")) {
                 logger.info("Generating SATELLITE map image");
-                imgSatellite = mapService.generate(lat, lon, "SATELLITE", boundaries, tempDir + "satellite.png");
+                imgSatellite = mapService.generate(lat, lon, "SATELLITE", boundaries, tempDir + "satellite.png", plotInfo);
                 if (req.isAiEnabled()) {
                     aiAnalyses.put("RETROSPECTIVE", claudeService.getSatelliteRetrospective(lat, lon));
                 }
@@ -178,7 +182,7 @@ public class WebReportService {
             File imgSlope = null;
             if (layers.contains("SLOPE")) {
                 logger.info("Generating SLOPE map image");
-                imgSlope = mapService.generate(lat, lon, "SLOPE", boundaries, tempDir + "slope.png");
+                imgSlope = mapService.generate(lat, lon, "SLOPE", boundaries, tempDir + "slope.png", plotInfo);
                 if (req.isAiEnabled()) {
                     aiAnalyses.put("SLOPE", claudeService.getSlopeAnalysis(lat, lon));
                 }
