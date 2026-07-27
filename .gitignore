@@ -36,3 +36,11 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Frontend ###
+land-analyzer-web/node_modules/
+land-analyzer-web/dist/
+land-analyzer-web/.env
+
+### Reports ###
+Reports/

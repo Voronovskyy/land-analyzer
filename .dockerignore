@@ -1,0 +1,7 @@
+land-analyzer-web/
+target/
+.git/
+.idea/
+Reports/
+*.iml
+*.md
