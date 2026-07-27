@@ -727,6 +727,14 @@ public class PdfReportService {
     }
 
     private BaseFont createBaseFont() throws Exception {
+        // Try classpath-bundled font first (works on any OS / Docker)
+        java.io.InputStream fontStream = PdfReportService.class.getResourceAsStream("/fonts/arial.ttf");
+        if (fontStream != null) {
+            byte[] fontBytes = fontStream.readAllBytes();
+            fontStream.close();
+            return BaseFont.createFont("/fonts/arial.ttf", BaseFont.IDENTITY_H, BaseFont.EMBEDDED, true, fontBytes, null);
+        }
+        // Fallback: configured file path (local Windows dev)
         return BaseFont.createFont(
                 ConfigManager.getProperty("pdf.font.path"),
                 BaseFont.IDENTITY_H,
