@@ -220,33 +220,11 @@ body {
   margin-bottom: 12px;
 }
 
-.suitability {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.suitability-pending {
   margin-bottom: 10px;
   font-size: 13px;
-  flex-wrap: wrap;
-}
-
-.suitability .score {
-  font-weight: 700;
-  font-size: 15px;
-}
-
-.score-bar {
-  flex: 1;
-  height: 6px;
-  background: #ecf0f1;
-  border-radius: 3px;
-  overflow: hidden;
-  min-width: 60px;
-}
-
-.score-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.5s ease;
+  color: #7f8c8d;
+  font-style: italic;
 }
 
 .info-table {
