@@ -105,8 +105,6 @@ public class MapHtmlBuilder {
         }
         pts.append("]");
 
-        int suitPctM = (int) (suitability * 100);
-
         html.append("        var manualPoints = ").append(pts).append(";\n")
                 .append("        var polygon = L.polygon(manualPoints,{color:'#e74c3c',fillColor:'#e74c3c',weight:2.5,fillOpacity:0.15}).addTo(map);\n")
                 .append("        window.plotLayer = polygon;\n")
@@ -115,9 +113,6 @@ public class MapHtmlBuilder {
                 .append("        for(var i=0;i<pts2.length;i++){perimM+=map.distance(pts2[i],pts2[(i+1)%pts2.length]);}\n")
                 .append("        var ctr = polygon.getBounds().getCenter();\n")
                 .append("        var ctrStr = ctr.lat.toFixed(5)+', '+ctr.lng.toFixed(5);\n")
-                .append("        var suitPct = ").append(suitPctM).append(";\n")
-                .append("        var sc = suitPct>=90?'#27ae60':suitPct>=65?'#e67e22':'#e74c3c';\n")
-                .append("        var sl = suitPct>=90?'Висока':suitPct>=65?'Середня':'Знижена';\n")
                 .append("        var popupContent = `")
                 .append("<div style='font-family:\"Segoe UI\",Arial,sans-serif;width:252px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.15);'>")
                 // Header
@@ -151,13 +146,8 @@ public class MapHtmlBuilder {
                 .append("</div>")
                 // Suitability
                 .append("<div style='padding:11px 14px;'>")
-                .append("<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;'>")
                 .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:1px;'>ПРИДАТНІСТЬ</div>")
-                .append("<div style='background:${sc};color:#fff;font-size:9px;font-weight:700;padding:2px 10px;border-radius:10px;'>${sl} &middot; ${suitPct}%</div>")
-                .append("</div>")
-                .append("<div style='height:5px;background:#ecf0f1;border-radius:3px;'>")
-                .append("<div style='height:5px;background:${sc};border-radius:3px;width:${suitPct}%;'></div>")
-                .append("</div>")
+                .append("<div style='color:#7f8c8d;font-size:11px;font-style:italic;margin-top:4px;'>Розраховується у повному звіті</div>")
                 .append("</div>")
                 .append("</div>`;\n")
                 .append("        polygon.bindPopup(popupContent,{maxWidth:280,className:'light-popup'}).openPopup();\n")
@@ -169,8 +159,6 @@ public class MapHtmlBuilder {
      */
     private static void appendGeoJsonAnalysis(StringBuilder html, String geoJson, double priceUah,
                                               double priceUsd, double rate, double elevation, double suitability) {
-        int suitPctG = (int) (suitability * 100);
-
         html.append("        var geojsonData = ").append(geoJson).append(";\n")
                 .append("        var plotLayer = L.geoJson(geojsonData,{style:{color:'#e74c3c',fillColor:'#e74c3c',weight:2.5,fillOpacity:0.15}}).addTo(map);\n")
                 .append("        window.plotLayer = plotLayer;\n")
@@ -179,9 +167,6 @@ public class MapHtmlBuilder {
                 .append("        for(var i=0;i<lls.length;i++){perimM+=map.distance(lls[i],lls[(i+1)%lls.length]);}\n")
                 .append("        var ctr = plotLayer.getBounds().getCenter();\n")
                 .append("        var ctrStr = ctr.lat.toFixed(5)+', '+ctr.lng.toFixed(5);\n")
-                .append("        var suitPct = ").append(suitPctG).append(";\n")
-                .append("        var sc = suitPct>=90?'#27ae60':suitPct>=65?'#e67e22':'#e74c3c';\n")
-                .append("        var sl = suitPct>=90?'Висока':suitPct>=65?'Середня':'Знижена';\n")
                 .append("        var popupContent = `")
                 .append("<div style='font-family:\"Segoe UI\",Arial,sans-serif;width:252px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.15);'>")
                 // Header
@@ -215,13 +200,8 @@ public class MapHtmlBuilder {
                 .append("</div>")
                 // Suitability
                 .append("<div style='padding:11px 14px;'>")
-                .append("<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;'>")
                 .append("<div style='color:#95a5a6;font-size:8px;font-weight:700;letter-spacing:1px;'>ПРИДАТНІСТЬ</div>")
-                .append("<div style='background:${sc};color:#fff;font-size:9px;font-weight:700;padding:2px 10px;border-radius:10px;'>${sl} &middot; ${suitPct}%</div>")
-                .append("</div>")
-                .append("<div style='height:5px;background:#ecf0f1;border-radius:3px;'>")
-                .append("<div style='height:5px;background:${sc};border-radius:3px;width:${suitPct}%;'></div>")
-                .append("</div>")
+                .append("<div style='color:#7f8c8d;font-size:11px;font-style:italic;margin-top:4px;'>Розраховується у повному звіті</div>")
                 .append("</div>")
                 .append("</div>`;\n")
                 .append("        plotLayer.bindPopup(popupContent,{maxWidth:280,className:'light-popup'}).openPopup();\n")
