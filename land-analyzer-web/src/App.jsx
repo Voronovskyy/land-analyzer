@@ -35,10 +35,9 @@ export default function App() {
       <header className="app-header">
         <div className="header-content">
           <div className="header-titles">
-            <h1>АНАЛІЗ ЗЕМЕЛЬНИХ ДІЛЯНОК</h1>
+            <h1>Аналіз земельних ділянок</h1>
             <span className="subtitle">Інтелектуальна система геоаналізу</span>
           </div>
-          <span className="phd-badge">PhD Research</span>
         </div>
       </header>
 
@@ -74,7 +73,7 @@ export default function App() {
       )}
 
       <footer className="app-footer">
-        LandPlot Analyzer &copy; 2024 &mdash; PhD Research Project
+        LandPlot Analyzer &copy; {new Date().getFullYear()} &mdash; PhD Research Project
       </footer>
     </div>
   );

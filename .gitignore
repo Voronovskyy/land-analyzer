@@ -44,3 +44,6 @@ land-analyzer-web/.env
 
 ### Reports ###
 Reports/
+
+### Claude session continuity (local only) ###
+.claude/SESSION_LOG.md

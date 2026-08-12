@@ -94,10 +94,19 @@ function AiPasswordModal({ onConfirm, onCancel }) {
   );
 }
 
+const progressLabel = (p, aiEnabled) => {
+  if (p < 20) return 'Збираємо дані про ділянку...';
+  if (p < 45) return 'Генеруємо карти шарів...';
+  if (p < 75) return aiEnabled ? 'AI аналізує ділянку...' : 'Формуємо PDF...';
+  if (p < 100) return 'Завершуємо звіт...';
+  return 'Готово!';
+};
+
 export default function ReportPanel({ searchData }) {
   const [layers, setLayers] = useState(['SCHEME', 'SATELLITE', 'TERRAIN']);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
@@ -129,6 +138,10 @@ export default function ReportPanel({ searchData }) {
 
   const runGenerate = async (aiPassword) => {
     setLoading(true);
+    setProgress(0);
+    const interval = setInterval(() => {
+      setProgress(p => Math.min(92, p + (92 - p) * 0.06 + 0.4));
+    }, 400);
     try {
       await generateReport({
         lat: searchData.lat,
@@ -145,7 +158,11 @@ export default function ReportPanel({ searchData }) {
         aiEnabled,
         aiPassword,
       });
+      clearInterval(interval);
+      setProgress(100);
+      await new Promise(r => setTimeout(r, 400));
     } catch (e) {
+      clearInterval(interval);
       if (e.response?.status === 401) {
         setError('Невірний пароль. AI-аналіз недоступний.');
       } else {
@@ -154,6 +171,7 @@ export default function ReportPanel({ searchData }) {
       console.error(e);
     } finally {
       setLoading(false);
+      setProgress(0);
     }
   };
 
@@ -197,8 +215,17 @@ export default function ReportPanel({ searchData }) {
           onClick={handleGenerateClick}
           disabled={loading}
         >
-          {loading ? 'Генерація PDF... (30–90 сек)' : 'Завантажити PDF-звіт'}
+          {loading ? 'Генерація PDF...' : 'Завантажити PDF-звіт'}
         </button>
+
+        {loading && (
+          <div className="progress-wrap">
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="progress-text">{progressLabel(progress, aiEnabled)}</div>
+          </div>
+        )}
       </div>
 
       {showPasswordModal && (
