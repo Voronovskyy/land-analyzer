@@ -118,11 +118,16 @@ public class ClaudeAnalysisService {
                 long ms = System.currentTimeMillis() - start;
 
                 if (response.statusCode() == 200) {
-                    String text = JsonParser.parseString(response.body())
-                            .getAsJsonObject()
-                            .getAsJsonArray("content")
-                            .get(0).getAsJsonObject()
-                            .get("text").getAsString();
+                    String text = extractText(response.body());
+                    if (text == null || text.isBlank()) {
+                        logger.warn("Claude API: відповідь без текстового блоку (спроба {}/{}): {}",
+                                attempt, MAX_ATTEMPTS, truncate(response.body()));
+                        if (attempt == MAX_ATTEMPTS) {
+                            return "Сталася помилка при зверненні до Claude.";
+                        }
+                        sleepBeforeRetry(attempt);
+                        continue;
+                    }
                     logger.info("Відповідь Claude за {} мс (спроба {})", ms, attempt);
                     return text.trim();
                 }
@@ -143,6 +148,33 @@ public class ClaudeAnalysisService {
             sleepBeforeRetry(attempt);
         }
         return "Сталася помилка при зверненні до Claude.";
+    }
+
+    /**
+     * Витягує текст з усіх блоків типу "text" у content[]. Не бере
+     * content[0] наосліп — Claude інколи повертає перед текстом інші
+     * блоки (напр. "thinking"), і в них немає поля "text", що раніше
+     * призводило до NullPointerException навіть при статусі 200.
+     */
+    private String extractText(String responseBody) {
+        JsonArray content = JsonParser.parseString(responseBody)
+                .getAsJsonObject()
+                .getAsJsonArray("content");
+        if (content == null || content.isEmpty()) return null;
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < content.size(); i++) {
+            JsonObject block = content.get(i).getAsJsonObject();
+            if (block.has("text") && block.get("text").isJsonPrimitive()) {
+                sb.append(block.get("text").getAsString());
+            }
+        }
+        return sb.length() > 0 ? sb.toString() : null;
+    }
+
+    private String truncate(String s) {
+        if (s == null || s.length() <= 500) return s;
+        return s.substring(0, 500) + "...";
     }
 
     /** 429 (rate limit), 5xx (включно з 529 overloaded) — варто повторити; 4xx (напр. 401/400) — ні. */
