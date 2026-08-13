@@ -11,7 +11,7 @@ export const getMapHtml = (data) =>
 export const generateReport = async (request) => {
   const response = await axios.post(`${BASE}/report`, request, {
     responseType: 'blob',
-    timeout: 120000,
+    timeout: 180000,
   });
   const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
   const a = document.createElement('a');

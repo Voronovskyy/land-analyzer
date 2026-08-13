@@ -15,6 +15,9 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 /**
@@ -37,6 +40,10 @@ public class WebReportService {
     private final ClaudeAnalysisService claudeService = new ClaudeAnalysisService();
     private final PdfReportService pdfService = new PdfReportService();
     private final StaticMapService mapService;
+    // 6 незалежних AI-запитів на звіт; запускаємо їх паралельно замість
+    // послідовно, інакше з ретраями (див. ClaudeAnalysisService) сумарний
+    // час легко перевищує таймаут запиту на фронтенді.
+    private final ExecutorService aiExecutor = Executors.newFixedThreadPool(6);
 
     public WebReportService(StaticMapService mapService) {
         this.mapService = mapService;
@@ -125,6 +132,23 @@ public class WebReportService {
             // Phase 2: map images + AI analyses
             Set<String> layers = new HashSet<>(req.getLayers() != null ? req.getLayers() : List.of());
             Map<String, String> aiAnalyses = new HashMap<>();
+            boolean ai = req.isAiEnabled();
+
+            // Kick off all AI calls concurrently right away — they're
+            // independent of each other and of map-image generation below,
+            // so there's no reason to pay for them one at a time.
+            CompletableFuture<String> infraF = (ai && layers.contains("SCHEME"))
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getInfrastructureAnalysis(lat, lon), aiExecutor) : null;
+            CompletableFuture<String> terrainF = (ai && layers.contains("TERRAIN"))
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getTerrainAnalysis(lat, lon), aiExecutor) : null;
+            CompletableFuture<String> demF = (ai && layers.contains("DEM"))
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getDemAnalysis(lat, lon), aiExecutor) : null;
+            CompletableFuture<String> ndviF = (ai && layers.contains("NDVI"))
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getNdviAnalysis(lat, lon), aiExecutor) : null;
+            CompletableFuture<String> satF = (ai && layers.contains("SATELLITE"))
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getSatelliteRetrospective(lat, lon), aiExecutor) : null;
+            CompletableFuture<String> slopeF = (ai && layers.contains("SLOPE"))
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getSlopeAnalysis(lat, lon), aiExecutor) : null;
 
             StaticMapService.PlotInfo plotInfo = new StaticMapService.PlotInfo(
                     req.getTitle(), req.getAreaHa(), req.getPriceUah(), req.getPriceUsd(),
@@ -134,9 +158,6 @@ public class WebReportService {
             if (layers.contains("SCHEME")) {
                 logger.info("Generating SCHEME map image");
                 imgScheme = mapService.generate(lat, lon, "SCHEME", boundaries, tempDir + "scheme.png", plotInfo);
-                if (req.isAiEnabled()) {
-                    aiAnalyses.put("INFRASTRUCTURE", claudeService.getInfrastructureAnalysis(lat, lon));
-                }
                 if (imgScheme != null) {
                     imgInfraAnnotated = InfraAnnotator.annotate(
                             imgScheme, lat, lon, infraDetails, tempDir + "infra_annotated.png");
@@ -147,46 +168,38 @@ public class WebReportService {
             if (layers.contains("TERRAIN")) {
                 logger.info("Generating TERRAIN map image");
                 imgTerrain = mapService.generate(lat, lon, "TERRAIN", boundaries, tempDir + "terrain.png", plotInfo);
-                if (req.isAiEnabled()) {
-                    aiAnalyses.put("TERRAIN", claudeService.getTerrainAnalysis(lat, lon));
-                }
             }
 
             File imgDem = null;
             if (layers.contains("DEM")) {
                 logger.info("Generating DEM map image");
                 imgDem = mapService.generate(lat, lon, "DEM", boundaries, tempDir + "dem.png", plotInfo);
-                if (req.isAiEnabled()) {
-                    aiAnalyses.put("DEM", claudeService.getDemAnalysis(lat, lon));
-                }
             }
 
             File imgNdvi = null;
             if (layers.contains("NDVI")) {
                 logger.info("Generating NDVI map image");
                 imgNdvi = mapService.generate(lat, lon, "NDVI", boundaries, tempDir + "ndvi.png", plotInfo);
-                if (req.isAiEnabled()) {
-                    aiAnalyses.put("NDVI", claudeService.getNdviAnalysis(lat, lon));
-                }
             }
 
             File imgSatellite = null;
             if (layers.contains("SATELLITE")) {
                 logger.info("Generating SATELLITE map image");
                 imgSatellite = mapService.generate(lat, lon, "SATELLITE", boundaries, tempDir + "satellite.png", plotInfo);
-                if (req.isAiEnabled()) {
-                    aiAnalyses.put("RETROSPECTIVE", claudeService.getSatelliteRetrospective(lat, lon));
-                }
             }
 
             File imgSlope = null;
             if (layers.contains("SLOPE")) {
                 logger.info("Generating SLOPE map image");
                 imgSlope = mapService.generate(lat, lon, "SLOPE", boundaries, tempDir + "slope.png", plotInfo);
-                if (req.isAiEnabled()) {
-                    aiAnalyses.put("SLOPE", claudeService.getSlopeAnalysis(lat, lon));
-                }
             }
+
+            if (infraF != null) aiAnalyses.put("INFRASTRUCTURE", infraF.join());
+            if (terrainF != null) aiAnalyses.put("TERRAIN", terrainF.join());
+            if (demF != null) aiAnalyses.put("DEM", demF.join());
+            if (ndviF != null) aiAnalyses.put("NDVI", ndviF.join());
+            if (satF != null) aiAnalyses.put("RETROSPECTIVE", satF.join());
+            if (slopeF != null) aiAnalyses.put("SLOPE", slopeF.join());
 
             File img3d = LandParcel3dImageRenderer.generate(boundaries, req.getElevation(), 1100, 660, tempDir + "model3d.png");
 
