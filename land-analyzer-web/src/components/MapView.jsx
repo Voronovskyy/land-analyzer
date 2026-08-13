@@ -25,6 +25,10 @@ export default function MapView({ data }) {
     return (
       <div className="map-placeholder">
         <div className="map-hero">
+          <svg className="map-hero-icon" width="52" height="52" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 22s7-7.58 7-13A7 7 0 0 0 5 9c0 5.42 7 13 7 13Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <circle cx="12" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
           <h2>Знайдіть земельну ділянку</h2>
           <p>
             Введіть адресу, кадастровий номер або координати меж —

@@ -96,6 +96,10 @@ body {
   flex: 1;
 }
 
+.content-grid--empty {
+  grid-template-columns: 1fr;
+}
+
 @media (max-width: 900px) {
   .content-grid {
     grid-template-columns: 1fr;
@@ -174,13 +178,22 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-mist);
+  padding: 24px;
+  background: linear-gradient(135deg, var(--color-dark) 0%, var(--color-primary) 100%);
 }
 
 .map-hero {
   max-width: 380px;
   text-align: center;
-  padding: 32px 24px;
+  padding: 36px 28px;
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+}
+
+.map-hero-icon {
+  color: var(--color-primary);
+  margin-bottom: 8px;
 }
 
 .map-hero h2 {
@@ -206,12 +219,12 @@ body {
 }
 
 .map-hero-examples li {
-  background: var(--color-surface);
+  background: var(--color-bg);
   border-radius: var(--radius-md);
   padding: 8px 12px;
   font-size: 12px;
   color: var(--color-dark);
-  box-shadow: var(--shadow-card);
+  border-left: 3px solid var(--color-primary);
 }
 
 .map-hero-examples li span {

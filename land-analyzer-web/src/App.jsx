@@ -47,20 +47,20 @@ export default function App() {
           {error && <div className="error-banner">{error}</div>}
         </div>
 
-        <div className="content-grid">
+        <div className={searchData ? 'content-grid' : 'content-grid content-grid--empty'}>
           <div className="map-section">
             <MapView data={searchData} />
           </div>
 
-          <aside className="side-panel">
-            <PricePanel data={searchData} />
-            {searchData && (
+          {searchData && (
+            <aside className="side-panel">
+              <PricePanel data={searchData} />
               <button className="threed-btn" onClick={() => setShow3d(true)}>
                 3D Модель ділянки
               </button>
-            )}
-            <ReportPanel searchData={searchData} />
-          </aside>
+              <ReportPanel searchData={searchData} />
+            </aside>
+          )}
         </div>
       </main>
 
