@@ -15,6 +15,7 @@ import java.awt.*;
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 import static ua.edu.university.util.PdfCellHelper.*;
 
@@ -89,11 +90,11 @@ public final class MapExtrasBuilder {
                 slopeAngleDeg < 8 ? "Похилий" : "Крутий";
 
         String[][] rows = {
-                {"Висота центру ділянки", String.format("%.1f м н.р.м.", centerElev)},
-                {"Мін. висота (кути)", String.format("%.1f м н.р.м.", minE)},
-                {"Макс. висота (кути)", String.format("%.1f м н.р.м.", maxE)},
-                {"Перепад висот", String.format("%.1f м", deltaH)},
-                {"Клас рельєфу", String.format("%s (%.1f°)", slopeClass, slopeAngleDeg)}
+                {"Висота центру ділянки", String.format(Locale.US, "%.1f м н.р.м.", centerElev)},
+                {"Мін. висота (кути)", String.format(Locale.US, "%.1f м н.р.м.", minE)},
+                {"Макс. висота (кути)", String.format(Locale.US, "%.1f м н.р.м.", maxE)},
+                {"Перепад висот", String.format(Locale.US, "%.1f м", deltaH)},
+                {"Клас рельєфу", String.format(Locale.US, "%s (%.1f°)", slopeClass, slopeAngleDeg)}
         };
         for (int i = 0; i < rows.length; i++) {
             Color bg = (i % 2 == 0) ? Color.WHITE : COL_ROW_ALT;
@@ -148,7 +149,7 @@ public final class MapExtrasBuilder {
         addCompact(t, "Оцінка", hf, main, true);
 
         addCompact(t, "Абсолютна висота", nf, Color.WHITE, false);
-        addCompact(t, String.format("%.0f м н.р.м.", elevation), bf2, Color.WHITE, true);
+        addCompact(t, String.format(Locale.US, "%.0f м н.р.м.", elevation), bf2, Color.WHITE, true);
         addCompact(t, "Тип рельєфу", nf, COL_ROW_ALT, false);
         addCompact(t, terrain, bf2, COL_ROW_ALT, true);
 
@@ -214,9 +215,9 @@ public final class MapExtrasBuilder {
         }
 
         String[][] rows = {
-                {"Річні опади (P)", String.format("%.0f мм", P), P > 400 && P < 900 ? "Норма" : "Відхилення"},
-                {"Серед. температура (T̄)", String.format("%.1f °C", tmean), tmean > 5 ? "Оптимум" : "Знижена"},
-                {"Індекс Де Мартонна (I)", String.format("%.1f", I), iClass},
+                {"Річні опади (P)", String.format(Locale.US, "%.0f мм", P), P > 400 && P < 900 ? "Норма" : "Відхилення"},
+                {"Серед. температура (T̄)", String.format(Locale.US, "%.1f °C", tmean), tmean > 5 ? "Оптимум" : "Знижена"},
+                {"Індекс Де Мартонна (I)", String.format(Locale.US, "%.1f", I), iClass},
                 {"Агрокліматична зона", iClass, ""},
                 {"Рекомендовані культури", crops, ""}
         };
@@ -276,32 +277,32 @@ public final class MapExtrasBuilder {
             buildComment = "Дані недоступні";
             agriComment = "Дані недоступні";
         } else if (slopeDeg < 1) {
-            buildRating = "★★★★★";
-            agriRating = "★★★★★";
+            buildRating = "Відмінно";
+            agriRating = "Відмінно";
             erosionRisk = "Мінімальний";
             buildComment = "Рівна поверхня — ідеально";
             agriComment = "Без обмежень";
         } else if (slopeDeg < 3) {
-            buildRating = "★★★★☆";
-            agriRating = "★★★★★";
+            buildRating = "Добре";
+            agriRating = "Відмінно";
             erosionRisk = "Низький";
             buildComment = "Сприятливо, стандартний фундамент";
             agriComment = "Без обмежень";
         } else if (slopeDeg < 8) {
-            buildRating = "★★★☆☆";
-            agriRating = "★★★★☆";
+            buildRating = "Задовільно";
+            agriRating = "Добре";
             erosionRisk = "Помірний";
             buildComment = "Потрібне вирівнювання";
             agriComment = "Рекомендований дренаж";
         } else if (slopeDeg < 15) {
-            buildRating = "★★☆☆☆";
-            agriRating = "★★★☆☆";
+            buildRating = "Обмежено";
+            agriRating = "Задовільно";
             erosionRisk = "Підвищений";
             buildComment = "Складне будівництво";
             agriComment = "Тераси або контурна оранка";
         } else {
-            buildRating = "★☆☆☆☆";
-            agriRating = "★★☆☆☆";
+            buildRating = "Непридатно";
+            agriRating = "Обмежено";
             erosionRisk = "Високий";
             buildComment = "Не рекомендовано";
             agriComment = "Лише пасовища або ліс";
@@ -327,7 +328,7 @@ public final class MapExtrasBuilder {
 
         addCompact(t, "Ризик ерозії", nf, Color.WHITE, false);
         t.addCell(erosionCell);
-        String slopeStr = slopeDeg >= 0 ? String.format("Ухил ~%.1f°", slopeDeg) : "Дані недоступні";
+        String slopeStr = slopeDeg >= 0 ? String.format(Locale.US, "Ухил ~%.1f°", slopeDeg) : "Дані недоступні";
         addCompact(t, slopeStr, nf, Color.WHITE, false);
         return t;
     }

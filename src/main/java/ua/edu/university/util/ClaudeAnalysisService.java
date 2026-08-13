@@ -37,46 +37,51 @@ public class ClaudeAnalysisService {
         this.apiKey = System.getenv("ANTHROPIC_API_KEY");
     }
 
-    public String getInfrastructureAnalysis(double lat, double lon) {
+    public String getInfrastructureAnalysis(double lat, double lon, String facts) {
         PromptLoader.PromptTemplate t = PromptLoader.load("infrastructure");
-        return call("INFRASTRUCTURE", buildPrompt(t.role(), t.task(), lat, lon));
+        return call("INFRASTRUCTURE", buildPrompt(t.role(), t.task(), lat, lon, facts));
     }
 
-    public String getTerrainAnalysis(double lat, double lon) {
+    public String getTerrainAnalysis(double lat, double lon, String facts) {
         PromptLoader.PromptTemplate t = PromptLoader.load("terrain");
-        return call("TERRAIN", buildPrompt(t.role(), t.task(), lat, lon));
+        return call("TERRAIN", buildPrompt(t.role(), t.task(), lat, lon, facts));
     }
 
-    public String getDemAnalysis(double lat, double lon) {
+    public String getDemAnalysis(double lat, double lon, String facts) {
         PromptLoader.PromptTemplate t = PromptLoader.load("dem");
-        return call("DEM", buildPrompt(t.role(), t.task(), lat, lon));
+        return call("DEM", buildPrompt(t.role(), t.task(), lat, lon, facts));
     }
 
-    public String getNdviAnalysis(double lat, double lon) {
+    public String getNdviAnalysis(double lat, double lon, String facts) {
         PromptLoader.PromptTemplate t = PromptLoader.load("ndvi");
-        return call("NDVI", buildPrompt(t.role(), t.task(), lat, lon));
+        return call("NDVI", buildPrompt(t.role(), t.task(), lat, lon, facts));
     }
 
-    public String getSatelliteRetrospective(double lat, double lon) {
+    public String getSatelliteRetrospective(double lat, double lon, String facts) {
         PromptLoader.PromptTemplate t = PromptLoader.load("satellite");
-        return call("RETROSPECTIVE", buildPrompt(t.role(), t.task(), lat, lon));
+        return call("RETROSPECTIVE", buildPrompt(t.role(), t.task(), lat, lon, facts));
     }
 
-    public String getSlopeAnalysis(double lat, double lon) {
+    public String getSlopeAnalysis(double lat, double lon, String facts) {
         PromptLoader.PromptTemplate t = PromptLoader.load("slope");
-        return call("SLOPE", buildPrompt(t.role(), t.task(), lat, lon));
+        return call("SLOPE", buildPrompt(t.role(), t.task(), lat, lon, facts));
     }
 
     // ─── Внутрішні методи ────────────────────────────────────────────────
 
-    private String buildPrompt(String role, String task, double lat, double lon) {
+    /**
+     * @param facts блок фактичних даних від {@link PlotFactsBuilder}; порожній
+     *              рядок допустимий, але тоді модель спирається лише на
+     *              координати і схильна домислювати деталі місцевості.
+     */
+    private String buildPrompt(String role, String task, double lat, double lon, String facts) {
         int limit = ConfigManager.getIntProperty("ai.claude.sentence.limit");
         String lang = ConfigManager.getProperty("ai.claude.language");
         return String.format(
-                "%s. %s. %s, до %d речень. " +
+                "%s. %s.%s %s, до %d речень. " +
                         "Науковий стиль, тільки факти та характеристики. " +
                         "Без порад, рекомендацій, власних оцінок та фраз типу «варто», «краще», «рекомендується».",
-                role, String.format(task, lat, lon), lang, limit);
+                role, String.format(task, lat, lon), facts == null ? "" : facts, lang, limit);
     }
 
     private String call(String type, String prompt) {

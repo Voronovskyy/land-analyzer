@@ -2,6 +2,8 @@ package ua.edu.university.util;
 
 import com.google.gson.JsonObject;
 
+import java.util.Locale;
+
 /**
  * Зважений розрахунок коефіцієнта придатності земельної ділянки.
  * <p>
@@ -28,7 +30,36 @@ public class SuitabilityCalculator {
 
     public static final double[] FACTOR_WEIGHTS = {0.15, 0.20, 0.15, 0.10, 0.20, 0.20};
 
+    /**
+     * Оцінка одного чинника разом із підставою.
+     * Підстава потрібна у звіті: сам по собі відсоток (напр. «Водні ресурси —
+     * 55 %») не пояснює, чому оцінка знижена, і виглядає як помилка.
+     *
+     * @param score [0..1], або -1 якщо даних немає
+     */
+    public record Factor(String name, double weight, double score, String reason) {
+        public boolean hasData() {
+            return score >= 0;
+        }
+    }
+
     // ── Публічний API ─────────────────────────────────────────────────────
+
+    /** Повний перелік чинників з оцінками та підставами, у порядку FACTOR_NAMES. */
+    public static Factor[] evaluate(double elevation, JsonObject infra, JsonObject climate) {
+        return new Factor[]{
+                elevationFactor(elevation),
+                infra != null ? roadFactor(infra) : noData(1),
+                infra != null ? powerFactor(infra) : noData(2),
+                infra != null ? waterFactor(infra) : noData(3),
+                infra != null ? envFactor(infra) : noData(4),
+                climate != null ? climateFactor(climate) : noData(5),
+        };
+    }
+
+    private static Factor noData(int i) {
+        return new Factor(FACTOR_NAMES[i], FACTOR_WEIGHTS[i], -1, "Дані недоступні");
+    }
 
     /**
      * Повний розрахунок КП на основі всіх доступних даних.
@@ -148,6 +179,83 @@ public class SuitabilityCalculator {
         }
 
         return Math.min(1.0, Math.max(0.0, score));
+    }
+
+    // ── Чинники з підставами ─────────────────────────────────────────────
+
+    private static Factor elevationFactor(double e) {
+        String reason;
+        if (e >= 100 && e <= 500) reason = String.format(Locale.US, "%.0f м — оптимальний діапазон", e);
+        else if (e >= 50 && e < 100) reason = String.format(Locale.US, "%.0f м — низовина, можливе підтоплення", e);
+        else if (e > 500 && e <= 800) reason = String.format(Locale.US, "%.0f м — пагорби, ускладнений рельєф", e);
+        else if (e > 800 && e <= 1200) reason = String.format(Locale.US, "%.0f м — передгір'я", e);
+        else if (e > 1200) reason = String.format(Locale.US, "%.0f м — гірський рельєф", e);
+        else reason = String.format(Locale.US, "%.0f м — висока ймовірність підтоплення", e);
+        return new Factor(FACTOR_NAMES[0], FACTOR_WEIGHTS[0], elevationScore(e), reason);
+    }
+
+    private static Factor roadFactor(JsonObject i) {
+        String reason;
+        if (!safeBool(i, "road_nearby")) {
+            reason = "доріг у радіусі 1000 м не виявлено";
+        } else {
+            long dist = safeLong(i, "road_distance_m");
+            reason = dist < 0 ? "дорога поруч" : "найближча дорога ~" + dist + " м";
+        }
+        return new Factor(FACTOR_NAMES[1], FACTOR_WEIGHTS[1], roadScore(i), reason);
+    }
+
+    private static Factor powerFactor(JsonObject i) {
+        boolean has = safeBool(i, "power_nearby");
+        return new Factor(FACTOR_NAMES[2], FACTOR_WEIGHTS[2], powerScore(i),
+                has ? "ЛЕП у радіусі 500 м" : "ЛЕП у радіусі 500 м не виявлено");
+    }
+
+    private static Factor waterFactor(JsonObject i) {
+        String reason;
+        if (!safeBool(i, "water_nearby")) {
+            reason = "водойм у радіусі 1500 м не виявлено";
+        } else {
+            long dist = safeLong(i, "water_distance_m");
+            if (dist >= 0 && dist < 80) reason = "вода за ~" + dist + " м — надто близько, ризик підтоплення";
+            else if (dist < 300) reason = "вода за ~" + dist + " м — оптимально";
+            else reason = "вода за ~" + dist + " м";
+        }
+        return new Factor(FACTOR_NAMES[3], FACTOR_WEIGHTS[3], waterScore(i), reason);
+    }
+
+    private static Factor envFactor(JsonObject i) {
+        StringBuilder sb = new StringBuilder();
+        if (safeBool(i, "cemetery_100m")) sb.append("кладовище; ");
+        if (safeBool(i, "industrial_100m")) sb.append("промзона; ");
+        if (safeBool(i, "station_100m")) sb.append("залізнична станція; ");
+        String reason = sb.length() == 0
+                ? "у радіусі 100 м знижуючих чинників немає"
+                : "у радіусі 100 м: " + sb.substring(0, sb.length() - 2);
+        return new Factor(FACTOR_NAMES[4], FACTOR_WEIGHTS[4], envScore(i), reason);
+    }
+
+    private static Factor climateFactor(JsonObject c) {
+        StringBuilder sb = new StringBuilder();
+        if (c.has("annual_precipitation")) {
+            double p = c.get("annual_precipitation").getAsDouble();
+            sb.append(String.format(Locale.US, "опади %.0f мм", p));
+            if (p < 250) sb.append(" — посушливо");
+            else if (p < 400) sb.append(" — недостатньо");
+            else if (p > 1100) sb.append(" — надлишок");
+            else if (p > 900) sb.append(" — підвищені");
+            else sb.append(" — норма");
+        }
+        if (c.has("max_temp")) {
+            double t = c.get("max_temp").getAsDouble();
+            if (t > 36) sb.append(String.format(Locale.US, "; макс. %.0f °C — спека", t));
+        }
+        if (c.has("min_temp")) {
+            double t = c.get("min_temp").getAsDouble();
+            if (t < -22) sb.append(String.format(Locale.US, "; мін. %.0f °C — сильні морози", t));
+        }
+        String reason = sb.length() == 0 ? "кліматичні показники в межах норми" : sb.toString();
+        return new Factor(FACTOR_NAMES[5], FACTOR_WEIGHTS[5], climateScore(c), reason);
     }
 
     // ── Допоміжні методи ─────────────────────────────────────────────────

@@ -96,8 +96,11 @@ public class ReportCoordinator {
         CompletableFuture.runAsync(() -> {
             try {
                 ReportData data = collectApiData(lat, lon, boundaries, elevation, statusUpdater);
+                String facts = PlotFactsBuilder.build(area, elevation, data.cornerElevations(),
+                        boundaries, data.geoAddress(), data.infra(), data.climate(),
+                        data.poiData(), data.dayLength());
                 CapturedLayers layers = captureMapLayers(lat, lon, elevation, boundaries,
-                        selectedLayers, isAiEnabled, data.infra(), statusUpdater);
+                        selectedLayers, isAiEnabled, data.infra(), facts, statusUpdater);
 
                 long elapsed = (System.currentTimeMillis() - startTime) / 1000;
                 updateStatus(statusUpdater, "Збірка комплексного звіту... (" + elapsed + "с)");
@@ -161,13 +164,13 @@ public class ReportCoordinator {
     private CapturedLayers captureMapLayers(double lat, double lon, double elevation,
                                             List<Coordinate> boundaries,
                                             Set<String> selectedLayers, boolean isAiEnabled,
-                                            JsonObject infraDetails,
+                                            JsonObject infraDetails, String facts,
                                             Consumer<String> statusUpdater) throws Exception {
         zoomOutForCapture();
 
         File imgScheme = null, imgInfraAnnotated = null;
         if (selectedLayers.contains("SCHEME")) {
-            aiAnalyses.put("INFRASTRUCTURE", fetchAnalysis(isAiEnabled, "INFRASTRUCTURE", lat, lon, statusUpdater));
+            aiAnalyses.put("INFRASTRUCTURE", fetchAnalysis(isAiEnabled, "INFRASTRUCTURE", lat, lon, facts, statusUpdater));
             waitForTilesSync();
             imgScheme = captureSnapshotSync(IMG_SCHEME);
 
@@ -183,28 +186,28 @@ public class ReportCoordinator {
         File imgTerrain = null;
         if (selectedLayers.contains("TERRAIN")) {
             syncLayerChange("terrainGroup");
-            aiAnalyses.put("TERRAIN", fetchAnalysis(isAiEnabled, "TERRAIN", lat, lon, statusUpdater));
+            aiAnalyses.put("TERRAIN", fetchAnalysis(isAiEnabled, "TERRAIN", lat, lon, facts, statusUpdater));
             imgTerrain = captureSnapshotSync(IMG_TERRAIN);
         }
 
         File imgDem = null;
         if (selectedLayers.contains("DEM")) {
             syncLayerChange("demLayer");
-            aiAnalyses.put("DEM", fetchAnalysis(isAiEnabled, "DEM", lat, lon, statusUpdater));
+            aiAnalyses.put("DEM", fetchAnalysis(isAiEnabled, "DEM", lat, lon, facts, statusUpdater));
             imgDem = captureSnapshotSync(IMG_DEM);
         }
 
         File imgNdvi = null;
         if (selectedLayers.contains("NDVI")) {
             syncLayerChange("ndviLayer");
-            aiAnalyses.put("NDVI", fetchAnalysis(isAiEnabled, "NDVI", lat, lon, statusUpdater));
+            aiAnalyses.put("NDVI", fetchAnalysis(isAiEnabled, "NDVI", lat, lon, facts, statusUpdater));
             imgNdvi = captureSnapshotSync(IMG_NDVI);
         }
 
         File imgSat = null;
         if (selectedLayers.contains("SATELLITE")) {
             syncLayerChange("satellite");
-            aiAnalyses.put("RETROSPECTIVE", fetchAnalysis(isAiEnabled, "RETROSPECTIVE", lat, lon, statusUpdater));
+            aiAnalyses.put("RETROSPECTIVE", fetchAnalysis(isAiEnabled, "RETROSPECTIVE", lat, lon, facts, statusUpdater));
             imgSat = captureSnapshotSync(IMG_SATELLITE);
         }
 
@@ -217,7 +220,7 @@ public class ReportCoordinator {
         File imgSlope = null;
         if (selectedLayers.contains("SLOPE")) {
             syncLayerChange("slopeLayer");
-            aiAnalyses.put("SLOPE", fetchAnalysis(isAiEnabled, "SLOPE", lat, lon, statusUpdater));
+            aiAnalyses.put("SLOPE", fetchAnalysis(isAiEnabled, "SLOPE", lat, lon, facts, statusUpdater));
             imgSlope = captureSnapshotSync(IMG_SLOPE);
         }
 
@@ -255,16 +258,17 @@ public class ReportCoordinator {
     // ─── AI аналіз ───────────────────────────────────────────────
 
     private String fetchAnalysis(boolean isAiEnabled, String type,
-                                 double lat, double lon, Consumer<String> statusUpdater) {
+                                 double lat, double lon, String facts,
+                                 Consumer<String> statusUpdater) {
         if (!isAiEnabled) return "[AI DISABLED] Технічний аналіз для " + type;
         updateStatus(statusUpdater, "AI аналіз: " + type + "...");
         return switch (type) {
-            case "INFRASTRUCTURE" -> geminiService.getInfrastructureAnalysis(lat, lon);
-            case "TERRAIN" -> geminiService.getTerrainAnalysis(lat, lon);
-            case "DEM" -> geminiService.getDemAnalysis(lat, lon);
-            case "NDVI" -> geminiService.getNdviAnalysis(lat, lon);
-            case "RETROSPECTIVE" -> geminiService.getSatelliteRetrospective(lat, lon);
-            case "SLOPE" -> geminiService.getSlopeAnalysis(lat, lon);
+            case "INFRASTRUCTURE" -> geminiService.getInfrastructureAnalysis(lat, lon, facts);
+            case "TERRAIN" -> geminiService.getTerrainAnalysis(lat, lon, facts);
+            case "DEM" -> geminiService.getDemAnalysis(lat, lon, facts);
+            case "NDVI" -> geminiService.getNdviAnalysis(lat, lon, facts);
+            case "RETROSPECTIVE" -> geminiService.getSatelliteRetrospective(lat, lon, facts);
+            case "SLOPE" -> geminiService.getSlopeAnalysis(lat, lon, facts);
             default -> "Дані відсутні.";
         };
     }

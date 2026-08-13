@@ -137,21 +137,28 @@ public class WebReportService {
             Map<String, String> aiAnalyses = new HashMap<>();
             boolean ai = req.isAiEnabled();
 
+            // Без цього блоку модель отримує самі координати і домислює
+            // місцевість — у звітах з'являлись твердження, що прямо
+            // суперечили таблицям на тій самій сторінці.
+            String facts = PlotFactsBuilder.build(
+                    req.getAreaHa(), req.getElevation(), cornerElevations, boundaries,
+                    geoAddress, infraDetails, climateData, poiData, dayLength);
+
             // Kick off all AI calls concurrently right away — they're
             // independent of each other and of map-image generation below,
             // so there's no reason to pay for them one at a time.
             CompletableFuture<String> infraF = (ai && layers.contains("SCHEME"))
-                    ? CompletableFuture.supplyAsync(() -> claudeService.getInfrastructureAnalysis(lat, lon), aiExecutor) : null;
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getInfrastructureAnalysis(lat, lon, facts), aiExecutor) : null;
             CompletableFuture<String> terrainF = (ai && layers.contains("TERRAIN"))
-                    ? CompletableFuture.supplyAsync(() -> claudeService.getTerrainAnalysis(lat, lon), aiExecutor) : null;
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getTerrainAnalysis(lat, lon, facts), aiExecutor) : null;
             CompletableFuture<String> demF = (ai && layers.contains("DEM"))
-                    ? CompletableFuture.supplyAsync(() -> claudeService.getDemAnalysis(lat, lon), aiExecutor) : null;
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getDemAnalysis(lat, lon, facts), aiExecutor) : null;
             CompletableFuture<String> ndviF = (ai && layers.contains("NDVI"))
-                    ? CompletableFuture.supplyAsync(() -> claudeService.getNdviAnalysis(lat, lon), aiExecutor) : null;
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getNdviAnalysis(lat, lon, facts), aiExecutor) : null;
             CompletableFuture<String> satF = (ai && layers.contains("SATELLITE"))
-                    ? CompletableFuture.supplyAsync(() -> claudeService.getSatelliteRetrospective(lat, lon), aiExecutor) : null;
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getSatelliteRetrospective(lat, lon, facts), aiExecutor) : null;
             CompletableFuture<String> slopeF = (ai && layers.contains("SLOPE"))
-                    ? CompletableFuture.supplyAsync(() -> claudeService.getSlopeAnalysis(lat, lon), aiExecutor) : null;
+                    ? CompletableFuture.supplyAsync(() -> claudeService.getSlopeAnalysis(lat, lon, facts), aiExecutor) : null;
 
             StaticMapService.PlotInfo plotInfo = new StaticMapService.PlotInfo(
                     req.getTitle(), req.getAreaHa(), req.getPriceUah(), req.getPriceUsd(),

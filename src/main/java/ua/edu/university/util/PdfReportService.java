@@ -7,8 +7,10 @@ import com.lowagie.text.Font;
 import com.lowagie.text.Image;
 import com.lowagie.text.Rectangle;
 import com.lowagie.text.pdf.BaseFont;
+import com.lowagie.text.pdf.PdfContentByte;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
+import com.lowagie.text.pdf.PdfPageEventHelper;
 import com.lowagie.text.pdf.PdfWriter;
 import com.lowagie.text.pdf.draw.LineSeparator;
 import org.slf4j.Logger;
@@ -21,6 +23,7 @@ import java.io.FileOutputStream;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import static ua.edu.university.util.MapExtrasBuilder.*;
@@ -56,10 +59,12 @@ public class PdfReportService {
 
         try {
             ensureDirectoryExists(filePath);
-            PdfWriter.getInstance(document, new FileOutputStream(filePath));
-            document.open();
+            PdfWriter writer = PdfWriter.getInstance(document, new FileOutputStream(filePath));
 
+            // Шрифт потрібен колонтитулу, тому створюємо його до open().
             BaseFont bf = createBaseFont();
+            writer.setPageEvent(new RunningFooter(bf));
+            document.open();
             Color mainColor = Color.decode(ConfigManager.getProperty("pdf.color.main"));
             Color accentColor = Color.decode(ConfigManager.getProperty("pdf.color.accent"));
 
@@ -92,6 +97,10 @@ public class PdfReportService {
             if (mapSlope != null)
                 addMapPage(document, "6.  АНАЛІЗ СХИЛІВ  (HILLSHADE — ESRI ELEVATION)", mapSlope, aiAnalyses.get("SLOPE"), bf, accentColor,
                         buildSlopeExtras(cornerElevations, boundaries, bf, mainColor, accentColor));
+
+            // --- ПІДСУМОК ---
+            addSummaryPage(document, suitability, elevation, infra, climate,
+                    geoAddress, bf, mainColor, accentColor);
 
             // --- ДОДАТОК: КООРДИНАТИ ---
             if (boundaries != null && !boundaries.isEmpty()) {
@@ -185,7 +194,7 @@ public class PdfReportService {
         Font valAccent = new Font(bf, 13, Font.BOLD, accent);
 
         addStatBox(t, "ПЛОЩА", area, labelFont, valFont);
-        addStatBox(t, "ВИСОТА Н.Р.М.", String.format("%.1f м", elevation), labelFont, valFont);
+        addStatBox(t, "ВИСОТА Н.Р.М.", String.format(Locale.US, "%.1f м", elevation), labelFont, valFont);
         addStatBox(t, "ВАРТІСТЬ", priceUah, labelFont, valSmall);
         addStatBox(t, "USD ЕКВІВАЛЕНТ", priceUsd, labelFont, valAccent);
         return t;
@@ -229,7 +238,7 @@ public class PdfReportService {
         PdfPCell right = noBoderCell(suitColor, 10);
         right.setHorizontalAlignment(Element.ALIGN_CENTER);
         right.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        Paragraph pct = new Paragraph(String.format("%.0f%%", suitability * 100),
+        Paragraph pct = new Paragraph(String.format(Locale.US, "%.0f%%", suitability * 100),
                 new Font(bf, 22, Font.BOLD, Color.WHITE));
         pct.setAlignment(Element.ALIGN_CENTER);
         right.addElement(pct);
@@ -298,7 +307,7 @@ public class PdfReportService {
         Font bFont = new Font(bf, 10, Font.BOLD);
 
         // 1. Кліматична таблиця
-        document.add(new Paragraph("1.  Метеорологічні показники (за минулий рік):", bFont));
+        document.add(new Paragraph("1.  Метеорологічні показники (річні узагальнення):", bFont));
         PdfPTable climateTable = new PdfPTable(2);
         climateTable.setWidthPercentage(100);
         climateTable.setSpacingBefore(5f);
@@ -325,7 +334,7 @@ public class PdfReportService {
             chart.setBorderColor(COL_BORDER);
             document.add(chart);
             Paragraph chartCaption = new Paragraph(
-                    "Рис.  Динаміка температури (T max / T min) та опадів за останні 30 днів",
+                    "Рис.  Оперативна динаміка за останні 30 днів: температура (T max / T min) та опади",
                     new Font(bf, 8, Font.ITALIC, Color.GRAY));
             chartCaption.setAlignment(Element.ALIGN_CENTER);
             chartCaption.setSpacingBefore(3f);
@@ -479,9 +488,11 @@ public class PdfReportService {
         Font bFont = new Font(bf, 9, Font.BOLD);
         Font naFont = new Font(bf, 9, Font.ITALIC, Color.GRAY);
 
-        PdfPTable t = new PdfPTable(4);
+        Font reasonFont = new Font(bf, 8, Font.NORMAL, Color.DARK_GRAY);
+
+        PdfPTable t = new PdfPTable(5);
         t.setWidthPercentage(100);
-        t.setWidths(new int[]{42, 12, 16, 30});
+        t.setWidths(new int[]{26, 9, 11, 12, 42});
         t.setSpacingBefore(5f);
         t.setSpacingAfter(6f);
 
@@ -489,33 +500,37 @@ public class PdfReportService {
         addStyledCell(t, "Вага", hFont, mainColor, true);
         addStyledCell(t, "Оцінка", hFont, mainColor, true);
         addStyledCell(t, "Внесок", hFont, mainColor, true);
+        addStyledCell(t, "Підстава", hFont, mainColor, false);
 
-        double[] scores = SuitabilityCalculator.getFactorScores(elevation, infra, climate);
-        double[] weights = SuitabilityCalculator.FACTOR_WEIGHTS;
-        String[] names = SuitabilityCalculator.FACTOR_NAMES;
+        SuitabilityCalculator.Factor[] factors =
+                SuitabilityCalculator.evaluate(elevation, infra, climate);
 
-        for (int i = 0; i < names.length; i++) {
+        for (int i = 0; i < factors.length; i++) {
+            SuitabilityCalculator.Factor f = factors[i];
             Color rowBg = (i % 2 == 0) ? Color.WHITE : COL_ROW_ALT;
-            addStyledCell(t, names[i], nFont, rowBg, false);
-            addStyledCell(t, String.format("%.0f%%", weights[i] * 100), nFont, rowBg, true);
+            addStyledCell(t, f.name(), nFont, rowBg, false);
+            addStyledCell(t, String.format(Locale.US, "%.0f%%", f.weight() * 100), nFont, rowBg, true);
 
-            if (scores[i] < 0) {
+            if (!f.hasData()) {
                 addStyledCell(t, "—", naFont, rowBg, true);
                 addStyledCell(t, "н/д", naFont, rowBg, true);
             } else {
-                Color scoreColor = scores[i] >= 0.85 ? accentColor
-                        : scores[i] >= 0.60 ? COL_WARN : COL_DANGER;
-                addStyledCell(t, String.format("%.0f%%", scores[i] * 100),
+                Color scoreColor = f.score() >= 0.85 ? accentColor
+                        : f.score() >= 0.60 ? COL_WARN : COL_DANGER;
+                addStyledCell(t, String.format(Locale.US, "%.0f%%", f.score() * 100),
                         new Font(bf, 9, Font.BOLD, scoreColor), rowBg, true);
-                addStyledCell(t, String.format("+%.2f", weights[i] * scores[i]), nFont, rowBg, true);
+                addStyledCell(t, String.format(Locale.US, "+%.2f", f.weight() * f.score()), nFont, rowBg, true);
             }
+            addStyledCell(t, f.reason(), reasonFont, rowBg, false);
         }
 
         Color totalColor = totalScore >= 0.9 ? accentColor : totalScore >= 0.65 ? COL_WARN : COL_DANGER;
         addStyledCell(t, "ПІДСУМКОВИЙ КП", new Font(bf, 9, Font.BOLD), mainColor, false);
         addStyledCell(t, "100%", new Font(bf, 9, Font.BOLD, Color.WHITE), mainColor, true);
-        addStyledCell(t, String.format("%.0f%%", totalScore * 100), new Font(bf, 9, Font.BOLD, totalColor), mainColor, true);
-        addStyledCell(t, String.format("= %.2f", totalScore), new Font(bf, 9, Font.BOLD, Color.WHITE), mainColor, true);
+        addStyledCell(t, String.format(Locale.US, "%.0f%%", totalScore * 100), new Font(bf, 9, Font.BOLD, totalColor), mainColor, true);
+        addStyledCell(t, String.format(Locale.US, "= %.2f", totalScore), new Font(bf, 9, Font.BOLD, Color.WHITE), mainColor, true);
+        addStyledCell(t, "ваги нормалізовано за наявними даними",
+                new Font(bf, 8, Font.ITALIC, Color.WHITE), mainColor, false);
 
         document.add(t);
     }
@@ -533,21 +548,26 @@ public class PdfReportService {
         long dist = safeLong(infra, "road_distance_m");
         String type = safeStr(infra, "road_type");
 
+        // Рівні у називному відмінку — далі вони підставляються у конструкцію
+        // «оцінюється як ...», де орудний відмінок дає граматичну помилку.
         String level, comment;
         if (dist <= 0) {
-            level = "достатньою";
-            comment = "Рекомендовано уточнити відстань на місці.";
-        } else if (dist <= 150) {
-            level = "відмінною";
+            level = "достатня";
+            comment = "Точну відстань слід уточнити на місці.";
+        } else if (dist <= 50) {
+            level = "відмінна";
             comment = "Ділянка має безпосередній вихід на дорогу, що є значною перевагою при будівництві та експлуатації.";
+        } else if (dist <= 150) {
+            level = "відмінна";
+            comment = "Дорога розташована в межах пішої досяжності; облаштування під'їзду не потребує значних витрат.";
         } else if (dist <= 400) {
-            level = "доброю";
+            level = "добра";
             comment = "Відстань до дороги є прийнятною для облаштування під'їзного шляху без значних витрат.";
         } else if (dist <= 700) {
-            level = "задовільною";
+            level = "задовільна";
             comment = "Слід врахувати витрати на прокладення під'їзної дороги у кошторисі будівництва.";
         } else {
-            level = "обмеженою";
+            level = "обмежена";
             comment = "Значна відстань до дороги потребує суттєвих капіталовкладень у транспортну інфраструктуру.";
         }
 
@@ -699,6 +719,103 @@ public class PdfReportService {
         document.add(footer);
     }
 
+    /**
+     * Зведений висновок. Формується детерміновано з уже порахованих чинників,
+     * без звернення до AI — щоб підсумок не міг розійтися з таблицями звіту.
+     */
+    private void addSummaryPage(Document doc, double suitability, double elevation,
+                                JsonObject infra, JsonObject climate, JsonObject geoAddress,
+                                BaseFont bf, Color main, Color accent) throws DocumentException {
+        doc.newPage();
+        addSectionBanner(doc, "ПІДСУМОК ТА ЗАГАЛЬНА ОЦІНКА", bf, main, 10);
+
+        Font h = new Font(bf, 10, Font.BOLD, main);
+        Font n = new Font(bf, 10, Font.NORMAL, new Color(44, 62, 80));
+        Font small = new Font(bf, 9, Font.ITALIC, Color.GRAY);
+
+        SuitabilityCalculator.Factor[] factors =
+                SuitabilityCalculator.evaluate(elevation, infra, climate);
+
+        // Загальний висновок
+        String verdict = suitability >= 0.9 ? "висока" : suitability >= 0.65 ? "середня" : "знижена";
+        Color verdictColor = suitability >= 0.9 ? accent : suitability >= 0.65 ? COL_WARN : COL_DANGER;
+
+        PdfPTable head = singleCellTable(COL_BG_LIGHT, 0, 12);
+        PdfPCell hc = head.getRow(0).getCells()[0];
+        hc.setPadding(12);
+        hc.addElement(label("ЗАГАЛЬНА ПРИДАТНІСТЬ", bf));
+        Paragraph v = new Paragraph(
+                String.format(Locale.US, "%s — %.0f%%", verdict.toUpperCase(), suitability * 100),
+                new Font(bf, 15, Font.BOLD, verdictColor));
+        v.setSpacingBefore(4f);
+        hc.addElement(v);
+        String addr = buildAddressLine(geoAddress);
+        if (!addr.isEmpty()) {
+            Paragraph a = new Paragraph(addr, new Font(bf, 9, Font.NORMAL, Color.GRAY));
+            a.setSpacingBefore(4f);
+            hc.addElement(a);
+        }
+        doc.add(head);
+
+        // Сильні та слабкі сторони
+        doc.add(new Paragraph("Сильні сторони:", h));
+        boolean anyStrong = false;
+        for (SuitabilityCalculator.Factor f : factors) {
+            if (f.hasData() && f.score() >= 0.85) {
+                doc.add(bullet(f.name() + " — " + f.reason(), n));
+                anyStrong = true;
+            }
+        }
+        if (!anyStrong) doc.add(bullet("Виражених переваг за наявними даними не виявлено", small));
+        doc.add(spacer(8));
+
+        doc.add(new Paragraph("Що потребує уваги:", h));
+        boolean anyWeak = false;
+        for (SuitabilityCalculator.Factor f : factors) {
+            if (f.hasData() && f.score() < 0.60) {
+                doc.add(bullet(f.name() + " — " + f.reason(), n));
+                anyWeak = true;
+            }
+        }
+        for (SuitabilityCalculator.Factor f : factors) {
+            if (!f.hasData()) {
+                doc.add(bullet(f.name() + " — дані відсутні, чинник виключено з розрахунку", small));
+                anyWeak = true;
+            }
+        }
+        if (!anyWeak) doc.add(bullet("Суттєвих обмежень за наявними даними не виявлено", n));
+        doc.add(spacer(12));
+
+        // Межі застосування
+        doc.add(new Paragraph("Обмеження звіту:", h));
+        doc.add(bullet("Оцінка побудована на відкритих геоданих (OSM, Open-Meteo, Open-Elevation) "
+                + "і не замінює інженерно-геологічних вишукувань та офіційної експертної оцінки.", n));
+        doc.add(bullet("Вартість наведена як орієнтир: базова ставка НГО, за наявності — "
+                + "коригування за ринковими пропозиціями; фактична ціна угоди може відрізнятися.", n));
+        doc.add(bullet("Висоти отримані з глобальної моделі рельєфу; для проєктування потрібне "
+                + "інструментальне знімання на місці.", n));
+        doc.add(bullet("Текстові висновки сформовано мовною моделлю на основі наведених у звіті "
+                + "даних і вони мають довідковий характер.", n));
+    }
+
+    private Paragraph bullet(String text, Font font) {
+        Paragraph p = new Paragraph("•  " + text, font);
+        p.setIndentationLeft(10f);
+        p.setLeading(14f);
+        p.setSpacingBefore(3f);
+        return p;
+    }
+
+    private String buildAddressLine(JsonObject geoAddress) {
+        if (geoAddress == null || geoAddress.size() == 0) return "";
+        List<String> parts = new java.util.ArrayList<>();
+        for (String key : new String[]{"road", "suburb", "city", "county", "state"}) {
+            String value = safeStr(geoAddress, key);
+            if (!value.isEmpty()) parts.add(value);
+        }
+        return String.join(", ", parts);
+    }
+
     private void addCoordinatesTable(Document document, List<Coordinate> boundaries,
                                      BaseFont bf, Color mainColor) throws DocumentException {
         document.newPage();
@@ -717,13 +834,59 @@ public class PdfReportService {
             Color rowBg = (count % 2 == 0) ? COL_ROW_ALT : Color.WHITE;
             addStyledCell(coordTable, String.valueOf(count),
                     nFont, rowBg, true);
-            addStyledCell(coordTable, String.format("%.6f", point.getLatitude()),
+            addStyledCell(coordTable, String.format(Locale.US, "%.6f", point.getLatitude()),
                     nFont, rowBg, false);
-            addStyledCell(coordTable, String.format("%.6f", point.getLongitude()),
+            addStyledCell(coordTable, String.format(Locale.US, "%.6f", point.getLongitude()),
                     nFont, rowBg, false);
             if (++count > 50) break;
         }
         document.add(coordTable);
+    }
+
+    /**
+     * Наскрізний колонтитул із нумерацією. Малюється у полі під нижнім
+     * берегом сторінки, тому не зсуває наявний контент.
+     */
+    private static class RunningFooter extends PdfPageEventHelper {
+        private static final float BASELINE = 24f;
+        private static final float FONT_SIZE = 7.5f;
+
+        private final BaseFont bf;
+
+        RunningFooter(BaseFont bf) {
+            this.bf = bf;
+        }
+
+        @Override
+        public void onEndPage(PdfWriter writer, Document document) {
+            Rectangle page = document.getPageSize();
+            float left = document.leftMargin();
+            float right = page.getWidth() - document.rightMargin();
+            PdfContentByte cb = writer.getDirectContent();
+
+            cb.saveState();
+            cb.setColorStroke(Color.LIGHT_GRAY);
+            cb.setLineWidth(0.4f);
+            cb.moveTo(left, BASELINE + 10);
+            cb.lineTo(right, BASELINE + 10);
+            cb.stroke();
+            cb.restoreState();
+
+            String title = ConfigManager.getProperty("pdf.report.header");
+            drawText(cb, title, left, BASELINE);
+
+            String num = "стор. " + writer.getPageNumber();
+            drawText(cb, num, right - bf.getWidthPoint(num, FONT_SIZE), BASELINE);
+        }
+
+        private void drawText(PdfContentByte cb, String text, float x, float y) {
+            cb.beginText();
+            cb.setFontAndSize(bf, FONT_SIZE);
+            cb.setColorFill(Color.GRAY);
+            cb.setTextMatrix(x, y);
+            cb.showText(text);
+            cb.endText();
+        }
     }
 
     private BaseFont createBaseFont() throws Exception {

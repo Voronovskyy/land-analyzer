@@ -260,7 +260,9 @@ public class OverpassApiService extends BaseApiService {
                 if (dist >= Double.MAX_VALUE) continue;
 
                 String type = poiType(tags);
-                String name = tags.has("name") ? tags.get("name").getAsString() : type;
+                // Раніше сюди підставлявся тип — у таблиці звіту виходило
+                // «Магазин | Магазин» замість порожньої назви.
+                String name = tags.has("name") ? tags.get("name").getAsString() : "без назви";
                 if (name.length() > 30) name = name.substring(0, 28) + "…";
 
                 JsonObject poi = new JsonObject();
