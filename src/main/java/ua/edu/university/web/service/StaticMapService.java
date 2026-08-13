@@ -80,7 +80,7 @@ public class StaticMapService {
         String tileUrl = TILE_URLS.getOrDefault(layer, TILE_URLS.get("SCHEME"));
         try {
             double[] center = resolveCenter(lat, lon, polygon);
-            int zoom = calculateZoom(polygon);
+            int zoom = resolveDataZoom(tileUrl, center[0], center[1], calculateZoom(polygon), layer);
             double cxD = lonToTileXDouble(center[1], zoom);
             double cyD = latToTileYDouble(center[0], zoom);
             long cx = (long) cxD;
@@ -152,6 +152,55 @@ public class StaticMapService {
 
     private static int clamp(int v, int min, int max) {
         return Math.max(min, Math.min(v, max));
+    }
+
+    // ── Data-coverage aware zoom ─────────────────────────────────────────
+
+    /**
+     * ESRI-сервіси відповідають HTTP 200 із зображенням-заглушкою
+     * «Map data not yet available» на тайли поза межами покриття даними,
+     * і глибина покриття залежить від регіону (World_Hillshade має дані
+     * до z16 біля Львова, але лише до z13 біля Києва). Заглушки позначені
+     * фіксованим ETag — це найдешевший надійний спосіб їх розпізнати.
+     */
+    private static final String NO_DATA_ETAG = "\"vvvvvvvvvvvvf\"";
+
+    /**
+     * Знижує зум, доки тайл-сервер не почне віддавати реальні дані.
+     * Без цього шар SLOPE (hillshade) для дрібних ділянок отримував
+     * суцільну заглушку і виглядав у звіті як порожня сіра карта.
+     */
+    private int resolveDataZoom(String tileUrl, double lat, double lon, int requestedZoom, String layer) {
+        for (int z = requestedZoom; z > MIN_ZOOM; z--) {
+            Boolean hasData = probeTileHasData(tileUrl, z, lonToTileX(lon, z), latToTileY(lat, z));
+            if (hasData == null) return z;   // проба не вдалась — не гадаємо, лишаємо як є
+            if (hasData) return z;
+            logger.info("{}: немає даних на zoom {}, знижуємо", layer, z);
+        }
+        return MIN_ZOOM;
+    }
+
+    /** true — реальний тайл, false — заглушка, null — перевірити не вдалось. */
+    private Boolean probeTileHasData(String urlTemplate, int z, long x, long y) {
+        String url = urlTemplate
+                .replace("{z}", String.valueOf(z))
+                .replace("{x}", String.valueOf(x))
+                .replace("{y}", String.valueOf(y));
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("User-Agent", "LandPlotAnalyzer/1.0 (PhDResearch)")
+                    .header("Accept", "image/*")
+                    .timeout(Duration.ofSeconds(8))
+                    .GET()
+                    .build();
+            HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+            if (response.statusCode() != 200) return null;
+            return !NO_DATA_ETAG.equals(response.headers().firstValue("ETag").orElse(""));
+        } catch (Exception e) {
+            logger.debug("Проба тайла не вдалась: {}", url);
+            return null;
+        }
     }
 
     // ── Center resolution ────────────────────────────────────────────────
