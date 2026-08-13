@@ -12,22 +12,35 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [show3d, setShow3d] = useState(false);
+  const [drawMode, setDrawMode] = useState(false);
 
-  const handleSearch = async (query) => {
+  /** Повертає true, якщо ділянку знайдено — режим малювання це використовує,
+   *  щоб не стирати намальовані точки після невдалої спроби. */
+  const runSearch = async (query, drawn = false) => {
     setLoading(true);
     setError(null);
     try {
       const data = await searchPlot(query);
       setSearchData(data);
+      return true;
     } catch (e) {
       if (e.response?.status === 404) {
-        setError('Ділянку не знайдено. Спробуйте іншу адресу або кадастровий номер.');
+        setError(drawn
+          ? 'Не вдалося обробити намальовану ділянку. Перевірте точки та спробуйте ще раз.'
+          : 'Ділянку не знайдено. Спробуйте іншу адресу або кадастровий номер.');
       } else {
         setError('Помилка з\'єднання з сервером. Переконайтесь, що backend запущений.');
       }
+      return false;
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleFinishDraw = async (query) => {
+    const ok = await runSearch(query, true);
+    if (ok) setDrawMode(false);
+    return ok;
   };
 
   return (
@@ -43,13 +56,20 @@ export default function App() {
 
       <main className="app-main">
         <div className="search-section">
-          <SearchBar onSearch={handleSearch} loading={loading} />
+          <SearchBar onSearch={runSearch} loading={loading} />
           {error && <div className="error-banner">{error}</div>}
         </div>
 
         <div className={searchData ? 'content-grid' : 'content-grid content-grid--empty'}>
           <div className="map-section">
-            <MapView data={searchData} />
+            <MapView
+              data={searchData}
+              drawMode={drawMode}
+              busy={loading}
+              onStartDraw={() => { setError(null); setDrawMode(true); }}
+              onCancelDraw={() => setDrawMode(false)}
+              onFinishDraw={handleFinishDraw}
+            />
           </div>
 
           {searchData && (
