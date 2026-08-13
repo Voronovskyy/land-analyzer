@@ -784,18 +784,6 @@ public class PdfReportService {
             }
         }
         if (!anyWeak) doc.add(bullet("Суттєвих обмежень за наявними даними не виявлено", n));
-        doc.add(spacer(12));
-
-        // Межі застосування
-        doc.add(new Paragraph("Обмеження звіту:", h));
-        doc.add(bullet("Оцінка побудована на відкритих геоданих (OSM, Open-Meteo, Open-Elevation) "
-                + "і не замінює інженерно-геологічних вишукувань та офіційної експертної оцінки.", n));
-        doc.add(bullet("Вартість наведена як орієнтир: базова ставка НГО, за наявності — "
-                + "коригування за ринковими пропозиціями; фактична ціна угоди може відрізнятися.", n));
-        doc.add(bullet("Висоти отримані з глобальної моделі рельєфу; для проєктування потрібне "
-                + "інструментальне знімання на місці.", n));
-        doc.add(bullet("Текстові висновки сформовано мовною моделлю на основі наведених у звіті "
-                + "даних і вони мають довідковий характер.", n));
     }
 
     private Paragraph bullet(String text, Font font) {
@@ -816,9 +804,13 @@ public class PdfReportService {
         return String.join(", ", parts);
     }
 
+    /**
+     * Координати меж ідуть у потоці одразу за підсумком, на тій самій
+     * сторінці. Якщо точок забагато, таблиця сама перетече на наступну.
+     */
     private void addCoordinatesTable(Document document, List<Coordinate> boundaries,
                                      BaseFont bf, Color mainColor) throws DocumentException {
-        document.newPage();
+        document.add(spacer(14));
         addSectionBanner(document, "ГЕОДЕЗИЧНИЙ ДОДАТОК:  КООРДИНАТИ МЕЖ (WGS 84)", bf, mainColor, 2);
 
         PdfPTable coordTable = new PdfPTable(3);
