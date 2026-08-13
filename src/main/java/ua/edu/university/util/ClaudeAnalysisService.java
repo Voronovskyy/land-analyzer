@@ -133,9 +133,10 @@ public class ClaudeAnalysisService {
                     return "Помилка Claude API: " + response.statusCode();
                 }
             } catch (Exception e) {
-                logger.warn("Помилка Claude API (спроба {}/{}): {}", attempt, MAX_ATTEMPTS, e.getMessage());
+                logger.warn("Помилка Claude API (спроба {}/{}) [{}]: {}",
+                        attempt, MAX_ATTEMPTS, e.getClass().getSimpleName(), e.getMessage());
                 if (attempt == MAX_ATTEMPTS) {
-                    logger.error("Claude API: усі спроби вичерпано для {}", type);
+                    logger.error("Claude API: усі спроби вичерпано для {}", type, e);
                     return "Сталася помилка при зверненні до Claude.";
                 }
             }

@@ -40,10 +40,13 @@ public class WebReportService {
     private final ClaudeAnalysisService claudeService = new ClaudeAnalysisService();
     private final PdfReportService pdfService = new PdfReportService();
     private final StaticMapService mapService;
-    // 6 незалежних AI-запитів на звіт; запускаємо їх паралельно замість
-    // послідовно, інакше з ретраями (див. ClaudeAnalysisService) сумарний
-    // час легко перевищує таймаут запиту на фронтенді.
-    private final ExecutorService aiExecutor = Executors.newFixedThreadPool(6);
+    // 6 незалежних AI-запитів на звіт; запускаємо їх паралельно, щоб не
+    // впиратись у клієнтський таймаут (див. коміт про паралелізацію), але
+    // пул навмисно менший за 6 — усі 6 одночасно надто часто впирались у
+    // ліміт одночасних з'єднань на боці Anthropic API (частина запитів
+    // рвалась з'єднанням замість чистого 429, і навіть 3 ретраї це не
+    // рятували, бо ліміт не встигав звільнитись).
+    private final ExecutorService aiExecutor = Executors.newFixedThreadPool(2);
 
     public WebReportService(StaticMapService mapService) {
         this.mapService = mapService;
