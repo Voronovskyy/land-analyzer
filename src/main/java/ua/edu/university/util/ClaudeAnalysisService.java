@@ -24,6 +24,8 @@ public class ClaudeAnalysisService {
 
     private static final String API_URL = "https://api.anthropic.com/v1/messages";
     private static final String API_VERSION = "2023-06-01";
+    private static final int MAX_ATTEMPTS = 3;
+    private static final long RETRY_BASE_DELAY_MS = 800;
 
     private final HttpClient httpClient;
     private final String apiKey;
@@ -107,30 +109,51 @@ public class ClaudeAnalysisService {
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
                 .build();
 
-        long start = System.currentTimeMillis();
-        logger.info("--- [CLAUDE REQUEST: {}] ---", type);
-        try {
-            HttpResponse<String> response =
-                    httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            long ms = System.currentTimeMillis() - start;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            long start = System.currentTimeMillis();
+            logger.info("--- [CLAUDE REQUEST: {}] (спроба {}/{}) ---", type, attempt, MAX_ATTEMPTS);
+            try {
+                HttpResponse<String> response =
+                        httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                long ms = System.currentTimeMillis() - start;
 
-            if (response.statusCode() != 200) {
-                logger.error("Claude API помилка {}: {}", response.statusCode(), response.body());
-                return "Помилка Claude API: " + response.statusCode();
+                if (response.statusCode() == 200) {
+                    String text = JsonParser.parseString(response.body())
+                            .getAsJsonObject()
+                            .getAsJsonArray("content")
+                            .get(0).getAsJsonObject()
+                            .get("text").getAsString();
+                    logger.info("Відповідь Claude за {} мс (спроба {})", ms, attempt);
+                    return text.trim();
+                }
+
+                logger.warn("Claude API помилка {} (спроба {}/{}): {}",
+                        response.statusCode(), attempt, MAX_ATTEMPTS, response.body());
+                if (!isRetryable(response.statusCode()) || attempt == MAX_ATTEMPTS) {
+                    return "Помилка Claude API: " + response.statusCode();
+                }
+            } catch (Exception e) {
+                logger.warn("Помилка Claude API (спроба {}/{}): {}", attempt, MAX_ATTEMPTS, e.getMessage());
+                if (attempt == MAX_ATTEMPTS) {
+                    logger.error("Claude API: усі спроби вичерпано для {}", type);
+                    return "Сталася помилка при зверненні до Claude.";
+                }
             }
+            sleepBeforeRetry(attempt);
+        }
+        return "Сталася помилка при зверненні до Claude.";
+    }
 
-            String text = JsonParser.parseString(response.body())
-                    .getAsJsonObject()
-                    .getAsJsonArray("content")
-                    .get(0).getAsJsonObject()
-                    .get("text").getAsString();
+    /** 429 (rate limit), 5xx (включно з 529 overloaded) — варто повторити; 4xx (напр. 401/400) — ні. */
+    private boolean isRetryable(int statusCode) {
+        return statusCode == 429 || statusCode >= 500;
+    }
 
-            logger.info("Відповідь Claude за {} мс", ms);
-            return text.trim();
-
-        } catch (Exception e) {
-            logger.error("Помилка Claude API: {}", e.getMessage());
-            return "Сталася помилка при зверненні до Claude.";
+    private void sleepBeforeRetry(int attempt) {
+        try {
+            Thread.sleep(RETRY_BASE_DELAY_MS * attempt);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 }
