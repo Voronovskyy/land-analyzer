@@ -54,12 +54,22 @@ public abstract class BaseApiService {
         long duration = System.currentTimeMillis() - startTime;
 
         logger.info("<<< [ВІДПОВІДЬ] Статус: {} | Час: {}ms", response.statusCode(), duration);
-        logger.debug("<<< [DATA]: {}", response.body());
+        logger.debug("<<< [DATA]: {}", truncate(response.body()));
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
             return response.body();
         } else {
-            logger.error("!!! [API ERROR] Код: {} | Тіло: {}", response.statusCode(), response.body());
+            logger.error("!!! [API ERROR] Код: {} | Тіло: {}", response.statusCode(), truncate(response.body()));
             throw new RuntimeException("HTTP Помилка: " + response.statusCode());
         }
+    }
+
+    /**
+     * Overpass-відповіді для щільної забудови можуть бути сотнями KB —
+     * повне тіло в логах і засмічує потік, і при паралельних запитах
+     * рядки різних відповідей переплітаються, роблячи лог нечитабельним.
+     */
+    private static String truncate(String body) {
+        if (body == null || body.length() <= 1000) return body;
+        return body.substring(0, 1000) + "... [обрізано, ще " + (body.length() - 1000) + " симв.]";
     }
 }
