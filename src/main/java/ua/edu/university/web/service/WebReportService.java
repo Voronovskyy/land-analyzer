@@ -188,8 +188,7 @@ public class WebReportService {
                 }
             }
 
-            // 3D model requires JavaFX Canvas — skipped in web mode (null = page omitted)
-            File img3d = null;
+            File img3d = LandParcel3dImageRenderer.generate(boundaries, req.getElevation(), 1100, 660, tempDir + "model3d.png");
 
             for (String key : new String[]{"INFRASTRUCTURE", "TERRAIN", "DEM", "NDVI", "RETROSPECTIVE", "SLOPE"}) {
                 aiAnalyses.putIfAbsent(key, "Дані наразі недоступні.");

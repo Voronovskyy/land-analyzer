@@ -146,7 +146,7 @@ export default function ReportPanel({ searchData }) {
       await generateReport({
         lat: searchData.lat,
         lon: searchData.lon,
-        title: 'Звіт про земельну ділянку',
+        title: `${searchData.lat.toFixed(6)}, ${searchData.lon.toFixed(6)}`,
         areaHa: searchData.areaHa,
         priceUah: searchData.priceUah,
         priceUsd: searchData.priceUsd,

@@ -34,14 +34,15 @@ public class StaticMapService {
     private static final Logger logger = LoggerFactory.getLogger(StaticMapService.class);
 
     private static final int TILE_SIZE = 256;
-    private static final int GRID_W = 4;
-    private static final int GRID_H = 3;
-    private static final int STITCH_W = GRID_W * TILE_SIZE;   // 1024
-    private static final int STITCH_H = GRID_H * TILE_SIZE;   // 768
+    // Grid is sized with enough margin around the output crop to allow
+    // sub-tile-precise centering (see the crop math in generate()) without
+    // ever running off the stitched image edge.
+    private static final int GRID_W = 5;
+    private static final int GRID_H = 4;
+    private static final int STITCH_W = GRID_W * TILE_SIZE;   // 1280
+    private static final int STITCH_H = GRID_H * TILE_SIZE;   // 1024
     private static final int OUT_W = 820;
     private static final int OUT_H = 500;
-    private static final int CROP_X = (STITCH_W - OUT_W) / 2; // 102
-    private static final int CROP_Y = (STITCH_H - OUT_H) / 2; // 134
 
     private static final int DEFAULT_ZOOM = 14;
     private static final int MAX_ZOOM = 17;
@@ -78,13 +79,16 @@ public class StaticMapService {
                          List<Coordinate> polygon, String outputPath, PlotInfo info) {
         String tileUrl = TILE_URLS.getOrDefault(layer, TILE_URLS.get("SCHEME"));
         try {
+            double[] center = resolveCenter(lat, lon, polygon);
             int zoom = calculateZoom(polygon);
-            long cx = lonToTileX(lon, zoom);
-            long cy = latToTileY(lat, zoom);
+            double cxD = lonToTileXDouble(center[1], zoom);
+            double cyD = latToTileYDouble(center[0], zoom);
+            long cx = (long) cxD;
+            long cy = (long) cyD;
             long txStart = cx - GRID_W / 2;
             long tyStart = cy - GRID_H / 2;
 
-            // Download 4×3 tiles in parallel
+            // Download tiles in parallel
             List<List<CompletableFuture<BufferedImage>>> futures = new ArrayList<>();
             for (int row = 0; row < GRID_H; row++) {
                 List<CompletableFuture<BufferedImage>> rowFutures = new ArrayList<>();
@@ -115,8 +119,15 @@ public class StaticMapService {
             }
             gs.dispose();
 
-            // Crop from center to OUT_W×OUT_H
-            BufferedImage cropped = stitched.getSubimage(CROP_X, CROP_Y, OUT_W, OUT_H);
+            // Crop centered exactly on the resolved point (not just the
+            // whole-tile grid center — a plain tile-index crop can be off
+            // by up to half a tile since the point rarely falls exactly
+            // on a tile boundary).
+            double exactPxX = (cxD - txStart) * TILE_SIZE;
+            double exactPxY = (cyD - tyStart) * TILE_SIZE;
+            int cropX = clamp((int) Math.round(exactPxX - OUT_W / 2.0), 0, STITCH_W - OUT_W);
+            int cropY = clamp((int) Math.round(exactPxY - OUT_H / 2.0), 0, STITCH_H - OUT_H);
+            BufferedImage cropped = stitched.getSubimage(cropX, cropY, OUT_W, OUT_H);
             BufferedImage result = new BufferedImage(OUT_W, OUT_H, BufferedImage.TYPE_INT_RGB);
             Graphics2D gr = result.createGraphics();
             gr.drawImage(cropped, 0, 0, null);
@@ -139,6 +150,26 @@ public class StaticMapService {
         }
     }
 
+    private static int clamp(int v, int min, int max) {
+        return Math.max(min, Math.min(v, max));
+    }
+
+    // ── Center resolution ────────────────────────────────────────────────
+
+    /**
+     * Центрує знімок на геометричному центрі полігону ділянки, а не на
+     * точці геокодування (яка для адресного пошуку не завжди збігається
+     * з центроїдом межі — через це ділянка раніше з'являлась не по центру).
+     */
+    private double[] resolveCenter(double lat, double lon, List<Coordinate> polygon) {
+        if (polygon == null || polygon.size() < 3) return new double[]{lat, lon};
+        double minLat = polygon.stream().mapToDouble(Coordinate::getLatitude).min().orElse(lat);
+        double maxLat = polygon.stream().mapToDouble(Coordinate::getLatitude).max().orElse(lat);
+        double minLon = polygon.stream().mapToDouble(Coordinate::getLongitude).min().orElse(lon);
+        double maxLon = polygon.stream().mapToDouble(Coordinate::getLongitude).max().orElse(lon);
+        return new double[]{(minLat + maxLat) / 2.0, (minLon + maxLon) / 2.0};
+    }
+
     // ── Zoom calculation ─────────────────────────────────────────────────
 
     private int calculateZoom(List<Coordinate> polygon) {
@@ -152,8 +183,10 @@ public class StaticMapService {
         double dLon = Math.max(maxLon - minLon, 0.00005);
         double dLat = Math.max(maxLat - minLat, 0.00005);
 
-        // Target: polygon bounding box fits in 35% of image width/height (2.85x padding around it)
-        double targetFraction = 0.35;
+        // Target: polygon bounding box fits in 22% of image width/height
+        // (was 35% — plot filled too much of the frame with too little
+        // surrounding context, so the crop looked "wrong"/zoomed in too far)
+        double targetFraction = 0.22;
         double effectiveTilesW = (double) OUT_W / TILE_SIZE;
         double effectiveTilesH = (double) OUT_H / TILE_SIZE;
 
