@@ -88,7 +88,14 @@ public class PlotFactsBuilder {
 
     private static String formatWater(JsonObject infra) {
         if (infra == null) return null;
-        if (!safeBoolean(infra, "water_nearby")) return "у радіусі 1500 м не виявлено";
+        if (!safeBoolean(infra, "water_nearby")) {
+            long drain = safeLong(infra, "drain_distance_m");
+            // Канаву подаємо саме як дренаж, а не як водойму: інакше модель
+            // писала про «водні ресурси поблизу» там, де їх немає.
+            return safeBoolean(infra, "drain_nearby") && drain >= 0
+                    ? "водойм у радіусі 1500 м не виявлено; дренажна канава ~" + drain + " м"
+                    : "у радіусі 1500 м не виявлено";
+        }
         String name = safeStr(infra, "water_name");
         String type = safeStr(infra, "water_type");
         long dist = safeLong(infra, "water_distance_m");

@@ -134,14 +134,25 @@ public class SuitabilityCalculator {
     }
 
     // 4. Водні ресурси
+    /**
+     * Смуги переглянуто: раніше об'єкт на межі радіуса пошуку (1500 м) давав
+     * 0.75 проти 0.45 за повну відсутність води — третина діапазону чинника
+     * за водойму, яка на такій відстані ділянці ні ресурс, ні ризик.
+     */
     private static double waterScore(JsonObject i) {
         if (!safeBool(i, "water_nearby")) return 0.45;
         long dist = safeLong(i, "water_distance_m");
-        if (dist >= 0 && dist < 80) return 0.55;  // занадто близько — ризик повені
-        if (dist < 300) return 1.00;
-        if (dist < 700) return 0.90;
-        if (dist < 1500) return 0.75;
-        return 0.55;
+        double score;
+        if (dist < 0) score = 0.75;             // вода є, відстань невідома
+        else if (dist < 80) score = 0.55;       // надто близько — ризик підтоплення
+        else if (dist < 300) score = 1.00;
+        else if (dist < 600) score = 0.85;
+        else if (dist < 1000) score = 0.60;
+        else score = 0.48;                      // майже як відсутність води
+        // Ручай — слабший ресурс за річку чи канал: обсяг і стабільність
+        // стоку непорівнянні, особливо в межень.
+        if ("stream".equals(safeStr(i, "water_type_raw"))) score *= 0.85;
+        return score;
     }
 
     // 5. Екологічні ризики (знижуючі чинники)
@@ -220,11 +231,19 @@ public class SuitabilityCalculator {
         String reason;
         if (!safeBool(i, "water_nearby")) {
             reason = "водойм у радіусі 1500 м не виявлено";
+            // Канава — не ресурс, але й не замовчуємо її: вона свідчить про
+            // те, що територію доводиться осушувати.
+            long drain = safeLong(i, "drain_distance_m");
+            if (safeBool(i, "drain_nearby") && drain >= 0) {
+                reason += "; дренажна канава ~" + drain + " м — не водний ресурс";
+            }
         } else {
             long dist = safeLong(i, "water_distance_m");
-            if (dist >= 0 && dist < 80) reason = "вода за ~" + dist + " м — надто близько, ризик підтоплення";
+            if (dist < 0) reason = "водойму виявлено, відстань не визначено";
+            else if (dist < 80) reason = "вода за ~" + dist + " м — надто близько, ризик підтоплення";
             else if (dist < 300) reason = "вода за ~" + dist + " м — оптимально";
-            else reason = "вода за ~" + dist + " м";
+            else if (dist < 1000) reason = "вода за ~" + dist + " м";
+            else reason = "вода за ~" + dist + " м — надто далеко для використання";
         }
         return new Factor(FACTOR_NAMES[3], FACTOR_WEIGHTS[3], waterScore(i), reason);
     }
@@ -271,6 +290,10 @@ public class SuitabilityCalculator {
 
     private static long safeLong(JsonObject o, String key) {
         return o.has(key) ? o.get(key).getAsLong() : -1;
+    }
+
+    private static String safeStr(JsonObject o, String key) {
+        return o.has(key) ? o.get(key).getAsString() : "";
     }
 
     private static double round2(double v) {

@@ -11,8 +11,10 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Сервіс просторового аналізу інфраструктури навколо ділянки (OSM Overpass).
@@ -31,6 +33,13 @@ public class OverpassApiService extends BaseApiService {
     private static final int RADIUS_WATER = 1500;
     private static final int RADIUS_ROAD = 1000;
     private static final int RADIUS_PROXIMITY = 100;
+
+    /**
+     * Порядок значимості водних ресурсів. drain сюди не входить навмисно:
+     * дренажна канава — не водний ресурс, а скоріше ознака того, що
+     * територію доводиться осушувати.
+     */
+    private static final List<String> WATER_RESOURCE_PRIORITY = List.of("river", "canal", "stream");
 
     private static final int MAX_ATTEMPTS = 3;
     private static final long RETRY_DELAY_MS = 1500;
@@ -125,7 +134,6 @@ public class OverpassApiService extends BaseApiService {
     private JsonObject processElements(JsonObject root, double refLat, double refLon) {
         JsonArray elements = root.has("elements") ? root.getAsJsonArray("elements") : new JsonArray();
 
-        double minWaterDist = Double.MAX_VALUE;
         double minRoadDist = Double.MAX_VALUE;
         double minPowerDist = Double.MAX_VALUE;
         double nearestRoadLat = 0;
@@ -134,9 +142,12 @@ public class OverpassApiService extends BaseApiService {
         boolean hasCemetery = false;
         boolean hasIndustrial = false;
         boolean hasStation = false;
-        String waterName = "";
-        String waterType = "";
         String roadType = "";
+        // Найближчий об'єкт окремо по кожному типу waterway. Раніше тут був
+        // один глобальний найближчий, через що дренажна канава за 900 м
+        // повністю витісняла зі звіту річку за 1200 м.
+        Map<String, Double> waterDistByType = new HashMap<>();
+        Map<String, String> waterNameByType = new HashMap<>();
 
         for (int i = 0; i < elements.size(); i++) {
             JsonObject el = elements.get(i).getAsJsonObject();
@@ -156,11 +167,14 @@ public class OverpassApiService extends BaseApiService {
                 }
             }
 
-            // ── Водні об'єкти — лише найближчий ──
-            if (tags.has("waterway") && dist < minWaterDist) {
-                minWaterDist = dist;
-                waterType = tags.get("waterway").getAsString();
-                waterName = tags.has("name") ? tags.get("name").getAsString() : "";
+            // ── Водні об'єкти — найближчий по кожному типу ──
+            if (tags.has("waterway")) {
+                String wt = tags.get("waterway").getAsString();
+                Double prev = waterDistByType.get(wt);
+                if (prev == null || dist < prev) {
+                    waterDistByType.put(wt, dist);
+                    waterNameByType.put(wt, tags.has("name") ? tags.get("name").getAsString() : "");
+                }
             }
 
             // ── Дороги — лише найближча (шукаємо ближчий вузол геометрії) ──
@@ -192,7 +206,21 @@ public class OverpassApiService extends BaseApiService {
             }
         }
 
-        boolean hasWater = minWaterDist < Double.MAX_VALUE;
+        // Водний ресурс вибираємо за значимістю типу, а не за близькістю:
+        // річка цінніша для ділянки за ручай, а дренаж не є ресурсом
+        // узагалі і їде в окремі поля drain_*.
+        String chosenType = null;
+        for (String type : WATER_RESOURCE_PRIORITY) {
+            if (waterDistByType.containsKey(type)) {
+                chosenType = type;
+                break;
+            }
+        }
+        boolean hasWater = chosenType != null;
+        double waterDist = hasWater ? waterDistByType.get(chosenType) : -1;
+        String waterName = hasWater ? waterNameByType.get(chosenType) : "";
+        Double drainDist = waterDistByType.get("drain");
+
         boolean hasRoad = minRoadDist < Double.MAX_VALUE;
 
         JsonObject result = new JsonObject();
@@ -201,9 +229,13 @@ public class OverpassApiService extends BaseApiService {
                 minPowerDist < Double.MAX_VALUE ? Math.round(minPowerDist) : -1);
         result.addProperty("water_nearby", hasWater);
         result.addProperty("water_count", 1);
-        result.addProperty("water_distance_m", hasWater ? Math.round(minWaterDist) : -1);
+        result.addProperty("water_distance_m", hasWater ? Math.round(waterDist) : -1);
         result.addProperty("water_name", waterName);
-        result.addProperty("water_type", localizeWaterType(waterType));
+        result.addProperty("water_type", hasWater ? localizeWaterType(chosenType) : "");
+        // Нелокалізований тип — щоб оцінка не порівнювала українські рядки.
+        result.addProperty("water_type_raw", hasWater ? chosenType : "");
+        result.addProperty("drain_nearby", drainDist != null);
+        result.addProperty("drain_distance_m", drainDist != null ? Math.round(drainDist) : -1);
         result.addProperty("road_nearby", hasRoad);
         result.addProperty("road_count", 1);
         result.addProperty("road_distance_m", hasRoad ? Math.round(minRoadDist) : -1);
