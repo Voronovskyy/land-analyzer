@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import ua.edu.university.util.ConfigManager;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -22,11 +23,28 @@ import java.util.Locale;
 public class OverpassApiService extends BaseApiService {
 
     private static final Logger logger = LoggerFactory.getLogger(OverpassApiService.class);
-    private static final String OVERPASS_URL = "https://overpass-api.de/api/interpreter?data=";
+
+    /** Запас, якщо ключа немає в конфігу. */
+    private static final String DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter?data=";
+
     private static final int RADIUS_POWER = 500;
     private static final int RADIUS_WATER = 1500;
     private static final int RADIUS_ROAD = 1000;
     private static final int RADIUS_PROXIMITY = 100;
+
+    /**
+     * Інфраструктурний запит до Overpass відповідає близько 36 с, тож
+     * сервіс бере власну, довшу межу замість спільних 20 с.
+     */
+    public OverpassApiService() {
+        super("api.overpass.timeout.seconds");
+    }
+
+    /** Хост виніс у конфіг, щоб перемкнути дзеркало без правки коду. */
+    private static String overpassUrl() {
+        String url = ConfigManager.getProperty("api.overpass.url");
+        return url != null && !url.isBlank() ? url : DEFAULT_OVERPASS_URL;
+    }
 
     public JsonObject getInfrastructureDetails(double lat, double lon) {
         // out center tags — для кожного way повертає координати центру і теги
@@ -58,7 +76,7 @@ public class OverpassApiService extends BaseApiService {
 
         try {
             String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
-            String response = sendGetRequest(OVERPASS_URL + encoded);
+            String response = sendGetRequest(overpassUrl() + encoded);
             return processElements(JsonParser.parseString(response)
                     .getAsJsonObject(), lat, lon);
         } catch (Exception e) {
@@ -246,7 +264,7 @@ public class OverpassApiService extends BaseApiService {
                 lat, lon, lat, lon, lat, lon);
         try {
             String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
-            String response = sendGetRequest(OVERPASS_URL + encoded);
+            String response = sendGetRequest(overpassUrl() + encoded);
             JsonArray elements = JsonParser.parseString(response).getAsJsonObject()
                     .has("elements")
                     ? JsonParser.parseString(response).getAsJsonObject().getAsJsonArray("elements")

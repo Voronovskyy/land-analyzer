@@ -18,6 +18,8 @@ import java.time.Duration;
 public abstract class BaseApiService {
     private static final Logger logger = LoggerFactory.getLogger(BaseApiService.class);
 
+    private static final String DEFAULT_TIMEOUT_KEY = "api.request.timeout.seconds";
+
     /** Запас, якщо ключа немає в конфігу (ConfigManager віддав би 0 = «без межі»). */
     private static final int DEFAULT_TIMEOUT_SECONDS = 20;
 
@@ -26,11 +28,21 @@ public abstract class BaseApiService {
     private final Duration requestTimeout;
 
     public BaseApiService() {
+        this(DEFAULT_TIMEOUT_KEY);
+    }
+
+    /**
+     * Для джерел, які законно відповідають довше за типову межу: Overpass
+     * на інфраструктурний запит стабільно витрачає близько 36 с, і спільні
+     * 20 с обрізали його на півдорозі — у звіті чинники, що залежать від
+     * OSM, виходили порожніми («Дані недоступні»).
+     */
+    protected BaseApiService(String timeoutPropertyKey) {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         this.userAgent = ConfigManager.getProperty("api.user.agent");
-        this.requestTimeout = resolveRequestTimeout();
+        this.requestTimeout = resolveRequestTimeout(timeoutPropertyKey);
     }
 
     /**
@@ -41,8 +53,11 @@ public abstract class BaseApiService {
      * обривав запит (Railway логував це як 499 після 180 с). Усі виклики тут
      * мають фолбеки, тож швидка помилка завжди краща за вічне очікування.
      */
-    private static Duration resolveRequestTimeout() {
-        int seconds = ConfigManager.getIntProperty("api.request.timeout.seconds");
+    private static Duration resolveRequestTimeout(String key) {
+        int seconds = ConfigManager.getIntProperty(key);
+        if (seconds <= 0) {
+            seconds = ConfigManager.getIntProperty(DEFAULT_TIMEOUT_KEY);
+        }
         return Duration.ofSeconds(seconds > 0 ? seconds : DEFAULT_TIMEOUT_SECONDS);
     }
 
