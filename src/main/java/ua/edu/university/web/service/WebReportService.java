@@ -14,10 +14,12 @@ import ua.edu.university.web.dto.SearchResponse;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -47,6 +49,16 @@ public class WebReportService {
     // рвалась з'єднанням замість чистого 429, і навіть 3 ретраї це не
     // рятували, бо ліміт не встигав звільнитись).
     private final ExecutorService aiExecutor = Executors.newFixedThreadPool(2);
+    // Збір даних лишається послідовним, але кожен крок іде через цей пул,
+    // щоб його можна було обмежити в часі: таймаут повертає керування
+    // навіть коли зовнішній сервіс ще тримає з'єднання. Пул кешований,
+    // бо відпущена по таймауту задача ще дотягує свій HTTP-запит — його
+    // власна межа задана через api.request.timeout.seconds.
+    private final ExecutorService dataExecutor = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "report-data");
+        t.setDaemon(true);
+        return t;
+    });
 
     public WebReportService(StaticMapService mapService) {
         this.mapService = mapService;
@@ -97,6 +109,98 @@ public class WebReportService {
         return resp;
     }
 
+    // ── Time budget ──────────────────────────────────────────────────────
+
+    /** Крок збору даних, якому дозволено кинути перевірену помилку. */
+    @FunctionalInterface
+    private interface Step<T> {
+        T run() throws Exception;
+    }
+
+    /**
+     * Загальний дедлайн на звіт. Поки кожен зовнішній виклик був
+     * необмеженим у часі, один «тихий» сервіс підвішував увесь запит, і
+     * клієнт отримував обрив замість PDF. Тепер прострочений крок віддає
+     * фолбек, звіт складається з того, що встигло прийти, і відповідь
+     * завжди доходить до браузера.
+     */
+    private static final class Budget {
+        private static final int DEFAULT_TOTAL_SECONDS = 150;
+        private static final int DEFAULT_PER_CALL_SECONDS = 20;
+        private static final int DEFAULT_PER_MAP_SECONDS = 25;
+
+        private final long deadlineNanos;
+        private final Duration perCall;
+        private final Duration perMap;
+
+        Budget() {
+            this.deadlineNanos = System.nanoTime() + Duration.ofSeconds(
+                    seconds("report.budget.seconds", DEFAULT_TOTAL_SECONDS)).toNanos();
+            this.perCall = Duration.ofSeconds(
+                    seconds("report.budget.per.call.seconds", DEFAULT_PER_CALL_SECONDS));
+            this.perMap = Duration.ofSeconds(
+                    seconds("report.budget.per.map.seconds", DEFAULT_PER_MAP_SECONDS));
+        }
+
+        /** ConfigManager віддає 0 на відсутній ключ, а 0 тут означав би «без межі». */
+        private static int seconds(String key, int fallback) {
+            int value = ConfigManager.getIntProperty(key);
+            return value > 0 ? value : fallback;
+        }
+
+        Duration remaining() {
+            long left = deadlineNanos - System.nanoTime();
+            return left > 0 ? Duration.ofNanos(left) : Duration.ZERO;
+        }
+
+        Duration forCall() { return min(perCall, remaining()); }
+
+        Duration forMap() { return min(perMap, remaining()); }
+
+        private static Duration min(Duration a, Duration b) {
+            return a.compareTo(b) <= 0 ? a : b;
+        }
+    }
+
+    /** Виконує крок у межах бюджету; при простроченні віддає fallback. */
+    private <T> T within(Duration limit, String what, T fallback, Step<T> step) {
+        if (limit.isZero()) {
+            logger.warn("Бюджет звіту вичерпано — крок '{}' пропущено", what);
+            return fallback;
+        }
+        try {
+            return CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return step.run();
+                        } catch (Exception e) {
+                            logger.warn("Крок '{}' завершився помилкою: {}", what, e.getMessage());
+                            return fallback;
+                        }
+                    }, dataExecutor)
+                    .completeOnTimeout(fallback, limit.toMillis(), TimeUnit.MILLISECONDS)
+                    .join();
+        } catch (Exception e) {
+            logger.warn("Крок '{}' не вдався: {}", what, e.getMessage());
+            return fallback;
+        }
+    }
+
+    /** Чекає на AI-аналіз у межах решти бюджету; null → заглушка нижче. */
+    private String awaitAi(CompletableFuture<String> future, Budget budget, String what) {
+        if (future == null) return null;
+        Duration left = budget.remaining();
+        if (left.isZero()) {
+            logger.warn("Бюджет звіту вичерпано — AI-аналіз '{}' не дочекались", what);
+            return null;
+        }
+        try {
+            return future.get(left.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            logger.warn("AI-аналіз '{}' не дочекались: {}", what, e.getMessage());
+            return null;
+        }
+    }
+
     // ── Report generation ────────────────────────────────────────────────
 
     public byte[] generateReport(ReportRequest req) throws Exception {
@@ -108,18 +212,32 @@ public class WebReportService {
             double lon = req.getLon();
             List<Coordinate> boundaries = toCoordinates(req.getBoundaries());
 
-            // Phase 1: collect API data
-            logger.info("Collecting API data for ({}, {})", lat, lon);
-            JsonObject climateData = weatherService.getClimateStatistics(lat, lon);
-            JsonObject monthlyData = weatherService.getMonthlyData(lat, lon);
-            JsonObject infraDetails = overpassService.getInfrastructureDetails(lat, lon);
-            String dayLength = insolationService.getDayLength(lat, lon);
-            JsonObject country = countryService.getRegionalContext();
-            JsonObject geoAddress = geoApiService.getReverseGeocode(lat, lon);
-            JsonArray poiData = overpassService.getNearbyPOIs(lat, lon);
-            double[] cornerElevations = fetchCornerElevations(boundaries);
+            Budget budget = new Budget();
 
-            JsonObject annualMonthly = weatherService.getYearlyMonthlyData(lat, lon);
+            // Phase 1: collect API data
+            // Усе нижче приймає null як «даних немає» (див. null-перевірки в
+            // PlotFactsBuilder, SuitabilityCalculator, PdfReportService та
+            // InfraAnnotator), тож прострочений крок не ламає звіт.
+            logger.info("Collecting API data for ({}, {})", lat, lon);
+            JsonObject climateData = within(budget.forCall(), "climate", null,
+                    () -> weatherService.getClimateStatistics(lat, lon));
+            JsonObject monthlyData = within(budget.forCall(), "monthly weather", null,
+                    () -> weatherService.getMonthlyData(lat, lon));
+            JsonObject infraDetails = within(budget.forCall(), "infrastructure", null,
+                    () -> overpassService.getInfrastructureDetails(lat, lon));
+            String dayLength = within(budget.forCall(), "day length", null,
+                    () -> insolationService.getDayLength(lat, lon));
+            JsonObject country = within(budget.forCall(), "regional context", null,
+                    () -> countryService.getRegionalContext());
+            JsonObject geoAddress = within(budget.forCall(), "reverse geocode", null,
+                    () -> geoApiService.getReverseGeocode(lat, lon));
+            JsonArray poiData = within(budget.forCall(), "POI", new JsonArray(),
+                    () -> overpassService.getNearbyPOIs(lat, lon));
+            double[] cornerElevations = within(budget.forCall(), "corner elevations", null,
+                    () -> fetchCornerElevations(boundaries));
+
+            JsonObject annualMonthly = within(budget.forCall(), "annual weather", null,
+                    () -> weatherService.getYearlyMonthlyData(lat, lon));
             File annualChart = annualMonthly != null
                     ? MonthlyClimateChart.generate(annualMonthly, tempDir + "annual.png") : null;
 
@@ -164,10 +282,14 @@ public class WebReportService {
                     req.getTitle(), req.getAreaHa(), req.getPriceUah(), req.getPriceUsd(),
                     req.getElevation(), lat, lon);
 
+            // Карти теж під бюджетом: пошук зуму з даними (resolveDataZoom)
+            // зондує тайл-сервер послідовно і на кожен шар може витратити
+            // десятки секунд, якщо сервер відповідає повільно.
             File imgScheme = null, imgInfraAnnotated = null;
             if (layers.contains("SCHEME")) {
                 logger.info("Generating SCHEME map image");
-                imgScheme = mapService.generate(lat, lon, "SCHEME", boundaries, tempDir + "scheme.png", plotInfo);
+                imgScheme = within(budget.forMap(), "SCHEME map", null,
+                        () -> mapService.generate(lat, lon, "SCHEME", boundaries, tempDir + "scheme.png", plotInfo));
                 if (imgScheme != null) {
                     imgInfraAnnotated = InfraAnnotator.annotate(
                             imgScheme, lat, lon, infraDetails, tempDir + "infra_annotated.png");
@@ -177,39 +299,47 @@ public class WebReportService {
             File imgTerrain = null;
             if (layers.contains("TERRAIN")) {
                 logger.info("Generating TERRAIN map image");
-                imgTerrain = mapService.generate(lat, lon, "TERRAIN", boundaries, tempDir + "terrain.png", plotInfo);
+                imgTerrain = within(budget.forMap(), "TERRAIN map", null,
+                        () -> mapService.generate(lat, lon, "TERRAIN", boundaries, tempDir + "terrain.png", plotInfo));
             }
 
             File imgDem = null;
             if (layers.contains("DEM")) {
                 logger.info("Generating DEM map image");
-                imgDem = mapService.generate(lat, lon, "DEM", boundaries, tempDir + "dem.png", plotInfo);
+                imgDem = within(budget.forMap(), "DEM map", null,
+                        () -> mapService.generate(lat, lon, "DEM", boundaries, tempDir + "dem.png", plotInfo));
             }
 
             File imgNdvi = null;
             if (layers.contains("NDVI")) {
                 logger.info("Generating NDVI map image");
-                imgNdvi = mapService.generate(lat, lon, "NDVI", boundaries, tempDir + "ndvi.png", plotInfo);
+                imgNdvi = within(budget.forMap(), "NDVI map", null,
+                        () -> mapService.generate(lat, lon, "NDVI", boundaries, tempDir + "ndvi.png", plotInfo));
             }
 
             File imgSatellite = null;
             if (layers.contains("SATELLITE")) {
                 logger.info("Generating SATELLITE map image");
-                imgSatellite = mapService.generate(lat, lon, "SATELLITE", boundaries, tempDir + "satellite.png", plotInfo);
+                imgSatellite = within(budget.forMap(), "SATELLITE map", null,
+                        () -> mapService.generate(lat, lon, "SATELLITE", boundaries, tempDir + "satellite.png", plotInfo));
             }
 
             File imgSlope = null;
             if (layers.contains("SLOPE")) {
                 logger.info("Generating SLOPE map image");
-                imgSlope = mapService.generate(lat, lon, "SLOPE", boundaries, tempDir + "slope.png", plotInfo);
+                imgSlope = within(budget.forMap(), "SLOPE map", null,
+                        () -> mapService.generate(lat, lon, "SLOPE", boundaries, tempDir + "slope.png", plotInfo));
             }
 
-            if (infraF != null) aiAnalyses.put("INFRASTRUCTURE", infraF.join());
-            if (terrainF != null) aiAnalyses.put("TERRAIN", terrainF.join());
-            if (demF != null) aiAnalyses.put("DEM", demF.join());
-            if (ndviF != null) aiAnalyses.put("NDVI", ndviF.join());
-            if (satF != null) aiAnalyses.put("RETROSPECTIVE", satF.join());
-            if (slopeF != null) aiAnalyses.put("SLOPE", slopeF.join());
+            // awaitAi віддає null, якщо AI вимкнений, шар не обраний або
+            // аналіз не вклався в бюджет. putIfAbsent нижче підставляє
+            // заглушку і на відсутній ключ, і на null-значення.
+            aiAnalyses.put("INFRASTRUCTURE", awaitAi(infraF, budget, "INFRASTRUCTURE"));
+            aiAnalyses.put("TERRAIN", awaitAi(terrainF, budget, "TERRAIN"));
+            aiAnalyses.put("DEM", awaitAi(demF, budget, "DEM"));
+            aiAnalyses.put("NDVI", awaitAi(ndviF, budget, "NDVI"));
+            aiAnalyses.put("RETROSPECTIVE", awaitAi(satF, budget, "RETROSPECTIVE"));
+            aiAnalyses.put("SLOPE", awaitAi(slopeF, budget, "SLOPE"));
 
             File img3d = LandParcel3dImageRenderer.generate(boundaries, req.getElevation(), 1100, 660, tempDir + "model3d.png");
 

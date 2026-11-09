@@ -163,8 +163,13 @@ export default function ReportPanel({ searchData }) {
       await new Promise(r => setTimeout(r, 400));
     } catch (e) {
       clearInterval(interval);
+      // Таймаут раніше показувався як звичайна помилка генерації, і з того
+      // повідомлення не було видно, що сервер ще працював, а здався клієнт.
+      const timedOut = e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT';
       if (e.response?.status === 401) {
         setError('Невірний пароль. AI-аналіз недоступний.');
+      } else if (timedOut) {
+        setError('Сервер не відповів за відведений час. Спробуйте зменшити кількість шарів або вимкнути AI-аналіз.');
       } else {
         setError('Помилка генерації звіту. Спробуйте ще раз.');
       }

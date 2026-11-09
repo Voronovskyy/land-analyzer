@@ -17,20 +17,40 @@ import java.time.Duration;
  */
 public abstract class BaseApiService {
     private static final Logger logger = LoggerFactory.getLogger(BaseApiService.class);
+
+    /** Запас, якщо ключа немає в конфігу (ConfigManager віддав би 0 = «без межі»). */
+    private static final int DEFAULT_TIMEOUT_SECONDS = 20;
+
     protected final HttpClient httpClient;
     protected final String userAgent;
+    private final Duration requestTimeout;
 
     public BaseApiService() {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         this.userAgent = ConfigManager.getProperty("api.user.agent");
+        this.requestTimeout = resolveRequestTimeout();
+    }
+
+    /**
+     * connectTimeout обмежує ЛИШЕ встановлення TCP-з'єднання — він не покриває
+     * ні DNS-резолвінг, ні читання відповіді. Без таймауту на самому запиті
+     * зовнішній сервіс, який прийняв з'єднання й замовк, блокував потік
+     * безстроково: генерація звіту не падала, а висла, доки браузер сам не
+     * обривав запит (Railway логував це як 499 після 180 с). Усі виклики тут
+     * мають фолбеки, тож швидка помилка завжди краща за вічне очікування.
+     */
+    private static Duration resolveRequestTimeout() {
+        int seconds = ConfigManager.getIntProperty("api.request.timeout.seconds");
+        return Duration.ofSeconds(seconds > 0 ? seconds : DEFAULT_TIMEOUT_SECONDS);
     }
 
     protected String sendGetRequest(String url) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("User-Agent", userAgent)
+                .timeout(requestTimeout)
                 .GET()
                 .build();
         return executeRequest(request);
@@ -41,6 +61,7 @@ public abstract class BaseApiService {
                 .uri(URI.create(url))
                 .header("User-Agent", userAgent)
                 .header("Content-Type", "application/json")
+                .timeout(requestTimeout)
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                 .build();
         return executeRequest(request);

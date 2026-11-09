@@ -9,6 +9,9 @@ import ua.edu.university.model.Coordinate;
 import ua.edu.university.util.ConfigManager;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Сервіс для отримання даних про висоту над рівнем моря (Digital Elevation Model).
@@ -17,16 +20,39 @@ import java.util.List;
 public class ElevationApiService extends BaseApiService {
     private static final Logger logger = LoggerFactory.getLogger(ElevationApiService.class);
 
+    /**
+     * Було 5 спроб по 3 с: разом із відсутнім таймаутом на запиті (див.
+     * BaseApiService) це робило один невдалий замір висоти практично
+     * безкінечним. Запит до open-elevation при здоровому сервісі
+     * відповідає за пів секунди, тож трьох спроб поспіль він не вартий.
+     */
+    private static final int MAX_RETRIES = 2;
+    private static final int RETRY_DELAY_MS = 1000;
+
+    /** Демон, щоб пул ніколи не тримав JVM десктопної версії від виходу. */
+    private static final ExecutorService POOL = Executors.newFixedThreadPool(4, r -> {
+        Thread t = new Thread(r, "elevation-fetch");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /**
+     * Точки незалежні одна від одної, а послідовний обхід ставив чотири
+     * запити з ретраями підряд на критичний шлях генерації звіту.
+     */
     public double[] getMultipleElevations(List<Coordinate> points) {
+        List<CompletableFuture<Double>> futures = points.stream()
+                .map(p -> CompletableFuture.supplyAsync(
+                        () -> getElevation(p.getLatitude(), p.getLongitude()), POOL))
+                .toList();
+
         double[] result = new double[points.size()];
         for (int i = 0; i < points.size(); i++) {
-            result[i] = getElevation(points.get(i).getLatitude(), points.get(i).getLongitude());
+            // getElevation сам ловить усі помилки і віддає дефолт, тож join не кине.
+            result[i] = futures.get(i).join();
         }
         return result;
     }
-
-    private static final int MAX_RETRIES = 5;
-    private static final int RETRY_DELAY_MS = 3000;
 
     public double getElevation(double lat, double lon) {
         String baseUrl = ConfigManager.getProperty("api.elevation.url");
