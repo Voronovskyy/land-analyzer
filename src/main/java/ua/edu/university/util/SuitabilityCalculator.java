@@ -66,17 +66,40 @@ public class SuitabilityCalculator {
      * Якщо infra або climate = null — відповідні чинники виключаються,
      * а ваги нормалізуються.
      */
+    /** Припущення для чинника, дані по якому відсутні: ні добре, ні погано. */
+    private static final double NEUTRAL_SCORE = 0.5;
+
     public static double calculate(double elevation, JsonObject infra, JsonObject climate) {
         double[] scores = computeScores(elevation, infra, climate);
-        double sumW = 0, sumWS = 0;
+        double sumWS = 0;
         for (int i = 0; i < scores.length; i++) {
             if (scores[i] >= 0) {               // -1 означає "дані відсутні"
-                sumW += FACTOR_WEIGHTS[i];
                 sumWS += FACTOR_WEIGHTS[i] * scores[i];
             }
         }
-        double result = sumW > 0 ? sumWS / sumW : 0.65;
+        // Невідомі чинники беремо нейтральними, а не перенормовуємо ваги до
+        // відомих. Перенормування неявно припускало, що невідоме дорівнює
+        // середньому відомого: при двох доступних чинниках із максимальним
+        // балом (рельєф + клімат = 35 % ваги) звіт друкував 100 % придатності
+        // поруч із чотирма рядками «Дані недоступні».
+        double result = sumWS + (1.0 - knownWeight(scores)) * NEUTRAL_SCORE;
         return round2(Math.min(1.0, Math.max(0.05, result)));
+    }
+
+    /**
+     * Частка ваги чинників, для яких є дані [0..1]. Потрібна у звіті поряд із
+     * КП: та сама цифра означає різне при повному й частковому покритті.
+     */
+    public static double coverage(double elevation, JsonObject infra, JsonObject climate) {
+        return round2(knownWeight(computeScores(elevation, infra, climate)));
+    }
+
+    private static double knownWeight(double[] scores) {
+        double sumW = 0;
+        for (int i = 0; i < scores.length; i++) {
+            if (scores[i] >= 0) sumW += FACTOR_WEIGHTS[i];
+        }
+        return sumW;
     }
 
     /**

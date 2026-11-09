@@ -68,9 +68,11 @@ public class PdfReportService {
             Color mainColor = Color.decode(ConfigManager.getProperty("pdf.color.main"));
             Color accentColor = Color.decode(ConfigManager.getProperty("pdf.color.accent"));
 
+            double coverage = SuitabilityCalculator.coverage(elevation, infra, climate);
+
             // --- СТОРІНКА 1: ОБКЛАДИНКА ---
             buildCoverPage(document, title, area, priceUah, priceUsd,
-                    elevation, suitability, map3d, bf, mainColor, accentColor);
+                    elevation, suitability, coverage, map3d, bf, mainColor, accentColor);
 
             // --- СТОРІНКА 2: КЛІМАТ ТА ТЕХНІЧНІ МЕРЕЖІ ---
             document.newPage();
@@ -123,6 +125,7 @@ public class PdfReportService {
 
     private void buildCoverPage(Document doc, String title, String area, String priceUah,
                                 String priceUsd, double elevation, double suitability,
+                                double coverage,
                                 File map3d, BaseFont bf, Color main, Color accent) throws Exception {
 
         addHeader(doc, bf);
@@ -173,7 +176,7 @@ public class PdfReportService {
         doc.add(statsGrid(area, priceUah, priceUsd, elevation, bf, statLabel, main, accent));
         doc.add(spacer(6));
 
-        doc.add(suitabilityRow(suitability, bf, main, accent));
+        doc.add(suitabilityRow(suitability, coverage, bf, main, accent));
         doc.add(spacer(10));
 
         if (map3d != null && map3d.exists()) {
@@ -217,7 +220,7 @@ public class PdfReportService {
         table.addCell(cell);
     }
 
-    private PdfPTable suitabilityRow(double suitability, BaseFont bf,
+    private PdfPTable suitabilityRow(double suitability, double coverage, BaseFont bf,
                                      Color main, Color accent) throws DocumentException {
         Color suitColor = suitability >= 0.9 ? accent
                 : suitability >= 0.65 ? COL_WARN
@@ -233,6 +236,16 @@ public class PdfReportService {
         PdfPCell left = noBoderCell(COL_BG_LIGHT, 10);
         left.addElement(label("КОЕФІЦІЄНТ ПРИДАТНОСТІ ДІЛЯНКИ", bf));
         left.addElement(new Paragraph(suitText, new Font(bf, 11, Font.BOLD, suitColor)));
+        // Без покриття та сама цифра означає різне: 68 % за повними даними і
+        // 68 % там, де дві третини чинників невідомі — різні твердження.
+        if (coverage < 1.0) {
+            Paragraph cov = new Paragraph(
+                    String.format(Locale.US, "Дані доступні по %.0f%% ваги чинників; решту враховано нейтрально",
+                            coverage * 100),
+                    new Font(bf, 8, Font.ITALIC, Color.GRAY));
+            cov.setSpacingBefore(3f);
+            left.addElement(cov);
+        }
         t.addCell(left);
 
         PdfPCell right = noBoderCell(suitColor, 10);
@@ -529,8 +542,13 @@ public class PdfReportService {
         addStyledCell(t, "100%", new Font(bf, 9, Font.BOLD, Color.WHITE), mainColor, true);
         addStyledCell(t, String.format(Locale.US, "%.0f%%", totalScore * 100), new Font(bf, 9, Font.BOLD, totalColor), mainColor, true);
         addStyledCell(t, String.format(Locale.US, "= %.2f", totalScore), new Font(bf, 9, Font.BOLD, Color.WHITE), mainColor, true);
-        addStyledCell(t, "ваги нормалізовано за наявними даними",
-                new Font(bf, 8, Font.ITALIC, Color.WHITE), mainColor, false);
+        double coverage = SuitabilityCalculator.coverage(elevation, infra, climate);
+        String totalNote = coverage >= 1.0
+                ? "усі чинники виміряно"
+                : String.format(Locale.US,
+                        "дані по %.0f%% ваги; чинники без даних враховано нейтрально (0,5)",
+                        coverage * 100);
+        addStyledCell(t, totalNote, new Font(bf, 8, Font.ITALIC, Color.WHITE), mainColor, false);
 
         document.add(t);
     }
@@ -749,6 +767,16 @@ public class PdfReportService {
                 new Font(bf, 15, Font.BOLD, verdictColor));
         v.setSpacingBefore(4f);
         hc.addElement(v);
+        double coverage = SuitabilityCalculator.coverage(elevation, infra, climate);
+        if (coverage < 1.0) {
+            Paragraph cov = new Paragraph(
+                    String.format(Locale.US,
+                            "Оцінку розраховано за %.0f%% ваги чинників — решту враховано нейтрально (0,5)",
+                            coverage * 100),
+                    new Font(bf, 8, Font.ITALIC, Color.GRAY));
+            cov.setSpacingBefore(3f);
+            hc.addElement(cov);
+        }
         String addr = buildAddressLine(geoAddress);
         if (!addr.isEmpty()) {
             Paragraph a = new Paragraph(addr, new Font(bf, 9, Font.NORMAL, Color.GRAY));
