@@ -102,9 +102,11 @@ public class PlotFactsBuilder {
 
     private static String formatPower(JsonObject infra) {
         if (infra == null) return null;
-        return safeBoolean(infra, "power_nearby")
+        if (!safeBoolean(infra, "power_nearby")) return "у радіусі 500 м не виявлено";
+        long dist = safeLong(infra, "power_distance_m");
+        return dist < 0
                 ? "ЛЕП виявлено в радіусі 500 м"
-                : "у радіусі 500 м не виявлено";
+                : "найближча ЛЕП ~" + dist + " м";
     }
 
     private static String formatHazards(JsonObject infra) {

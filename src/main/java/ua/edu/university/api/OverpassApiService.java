@@ -32,6 +32,11 @@ public class OverpassApiService extends BaseApiService {
     private static final int RADIUS_ROAD = 1000;
     private static final int RADIUS_PROXIMITY = 100;
 
+    private static final int MAX_ATTEMPTS = 3;
+    private static final long RETRY_DELAY_MS = 1500;
+    /** Збій швидший за це — транзитний (502/429) і варто повторити. */
+    private static final long FAST_FAILURE_MS = 5000;
+
     /**
      * Інфраструктурний запит до Overpass відповідає близько 36 с, тож
      * сервіс бере власну, довшу межу замість спільних 20 с.
@@ -75,14 +80,45 @@ public class OverpassApiService extends BaseApiService {
                 RADIUS_PROXIMITY, lat, lon);
 
         try {
-            String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
-            String response = sendGetRequest(overpassUrl() + encoded);
+            String response = query(query);
             return processElements(JsonParser.parseString(response)
                     .getAsJsonObject(), lat, lon);
         } catch (Exception e) {
-            logger.error("Overpass API error: {}", e.getMessage());
-            return fallbackResult();
+            // Раніше тут повертався fallbackResult() з road_nearby=false,
+            // power_nearby=false, water_nearby=false — і звіт подавав збій
+            // API як виміряну відсутність об'єктів: «доріг у радіусі 1000 м
+            // не виявлено», разом зі зниженою оцінкою придатності ділянки.
+            // null означає «даних немає»: усі споживачі це обробляють, а
+            // SuitabilityCalculator ще й перенормовує ваги.
+            logger.error("Overpass API недоступний, інфраструктурні дані відсутні: {}", e.getMessage());
+            return null;
         }
+    }
+
+    /**
+     * Публічний Overpass під навантаженням віддає 502/429, і раніше будь-який
+     * такий збій одразу ставав порожнім результатом. Повторюємо лише швидкі
+     * збої: вони коштують копійки, тоді як повільний збій означає
+     * перевантажений сервер — повтор у бюджет кроку все одно не влізе
+     * (report.budget.per.call.seconds) і лише з'їсть його.
+     */
+    private String query(String overpassQl) throws Exception {
+        String encoded = URLEncoder.encode(overpassQl, StandardCharsets.UTF_8);
+        Exception last = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            long started = System.currentTimeMillis();
+            try {
+                return sendGetRequest(overpassUrl() + encoded);
+            } catch (Exception e) {
+                last = e;
+                long spent = System.currentTimeMillis() - started;
+                logger.warn("Overpass: спроба {}/{} невдала за {} мс: {}",
+                        attempt, MAX_ATTEMPTS, spent, e.getMessage());
+                if (attempt == MAX_ATTEMPTS || spent >= FAST_FAILURE_MS) break;
+                Thread.sleep(RETRY_DELAY_MS * attempt);
+            }
+        }
+        throw last;
     }
 
     // ─── Обробка відповіді ────────────────────────────────────────────────
@@ -91,6 +127,7 @@ public class OverpassApiService extends BaseApiService {
 
         double minWaterDist = Double.MAX_VALUE;
         double minRoadDist = Double.MAX_VALUE;
+        double minPowerDist = Double.MAX_VALUE;
         double nearestRoadLat = 0;
         double nearestRoadLon = 0;
         boolean hasPower = false;
@@ -109,7 +146,14 @@ public class OverpassApiService extends BaseApiService {
             // ── Електромережі ──
             if (tags.has("power")) {
                 String powerVal = tags.get("power").getAsString();
-                if (powerVal.matches("line|cable|minor_line|tower|pole")) hasPower = true;
+                if (powerVal.matches("line|cable|minor_line|tower|pole")) {
+                    hasPower = true;
+                    // Відстань рахуємо так само, як для дороги: геометрія
+                    // вже є у цій самій відповіді, а поле досі віддавалось
+                    // прошитою «-1», тобто ЛЕП була єдиним об'єктом без
+                    // відстані у звіті.
+                    if (dist < minPowerDist) minPowerDist = dist;
+                }
             }
 
             // ── Водні об'єкти — лише найближчий ──
@@ -153,7 +197,8 @@ public class OverpassApiService extends BaseApiService {
 
         JsonObject result = new JsonObject();
         result.addProperty("power_nearby", hasPower);
-        result.addProperty("power_distance_m", -1);
+        result.addProperty("power_distance_m",
+                minPowerDist < Double.MAX_VALUE ? Math.round(minPowerDist) : -1);
         result.addProperty("water_nearby", hasWater);
         result.addProperty("water_count", 1);
         result.addProperty("water_distance_m", hasWater ? Math.round(minWaterDist) : -1);
@@ -318,25 +363,4 @@ public class OverpassApiService extends BaseApiService {
         return "Об'єкт";
     }
 
-    private JsonObject fallbackResult() {
-        JsonObject r = new JsonObject();
-        r.addProperty("power_nearby", false);
-        r.addProperty("power_distance_m", -1);
-        r.addProperty("water_nearby", false);
-        r.addProperty("water_count", 0);
-        r.addProperty("water_distance_m", -1);
-        r.addProperty("water_name", "");
-        r.addProperty("water_type", "");
-        r.addProperty("road_nearby", false);
-        r.addProperty("road_count", 0);
-        r.addProperty("road_distance_m", -1);
-        r.addProperty("road_type", "");
-        r.addProperty("road_lat", 0.0);
-        r.addProperty("road_lon", 0.0);
-        r.addProperty("cemetery_100m", false);
-        r.addProperty("industrial_100m", false);
-        r.addProperty("station_100m", false);
-        r.addProperty("objects_count", 0);
-        return r;
-    }
 }

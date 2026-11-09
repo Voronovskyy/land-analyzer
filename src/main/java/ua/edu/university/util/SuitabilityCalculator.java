@@ -206,9 +206,14 @@ public class SuitabilityCalculator {
     }
 
     private static Factor powerFactor(JsonObject i) {
-        boolean has = safeBool(i, "power_nearby");
-        return new Factor(FACTOR_NAMES[2], FACTOR_WEIGHTS[2], powerScore(i),
-                has ? "ЛЕП у радіусі 500 м" : "ЛЕП у радіусі 500 м не виявлено");
+        String reason;
+        if (!safeBool(i, "power_nearby")) {
+            reason = "ЛЕП у радіусі 500 м не виявлено";
+        } else {
+            long dist = safeLong(i, "power_distance_m");
+            reason = dist < 0 ? "ЛЕП у радіусі 500 м" : "найближча ЛЕП ~" + dist + " м";
+        }
+        return new Factor(FACTOR_NAMES[2], FACTOR_WEIGHTS[2], powerScore(i), reason);
     }
 
     private static Factor waterFactor(JsonObject i) {
