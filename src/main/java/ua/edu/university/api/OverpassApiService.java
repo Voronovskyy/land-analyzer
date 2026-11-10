@@ -340,8 +340,9 @@ public class OverpassApiService extends BaseApiService {
                         "out center tags;",
                 lat, lon, lat, lon, lat, lon);
         try {
-            String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
-            String response = sendGetRequest(overpassUrl() + encoded);
+            // Через той самий query(), що й інфраструктура: POI-запит так само
+            // отримує 502 від перевантаженого сервера, а ретраю тут не було.
+            String response = query(query);
             JsonArray elements = JsonParser.parseString(response).getAsJsonObject()
                     .has("elements")
                     ? JsonParser.parseString(response).getAsJsonObject().getAsJsonArray("elements")

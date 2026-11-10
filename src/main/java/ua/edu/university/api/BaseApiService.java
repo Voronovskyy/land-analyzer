@@ -40,6 +40,11 @@ public abstract class BaseApiService {
     protected BaseApiService(String timeoutPropertyKey) {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
+                // Типово HttpClient редіректи НЕ слідує, а executeRequest
+                // вважає будь-який не-2xx помилкою: 301 від зовнішнього API
+                // тихо перетворювався на «даних немає». Саме так загубився
+                // регіональний контекст, коли restcountries переїхав.
+                .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         this.userAgent = ConfigManager.getProperty("api.user.agent");
         this.requestTimeout = resolveRequestTimeout(timeoutPropertyKey);

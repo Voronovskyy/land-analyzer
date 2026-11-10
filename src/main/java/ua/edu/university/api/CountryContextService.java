@@ -1,33 +1,26 @@
 package ua.edu.university.api;
 
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Сервіс для отримання загальнодержавних та регіональних даних.
+ * <p>
+ * Раніше звертався до restcountries.com/v3.1, але це джерело виведено з
+ * експлуатації: воно віддає 301 на legacy-файл, а той — відповідь
+ * {@code {"success":false,"errors":[{"message":"This API version has been
+ * deprecated"}]}}. Через це регіональний контекст завжди був null і рядок
+ * «Юрисдикція» зникав зі звіту.
+ * <p>
+ * Мережевий виклик тут і не потрібен: з усієї відповіді у звіт ішов лише
+ * рядок «Україна» — {@code population} і {@code timezone} не читав жоден
+ * споживач. Тобто запит додавав ще одну точку відмови у фазу збору даних,
+ * не додаючи жодних даних.
  */
-public class CountryContextService extends BaseApiService {
-    private static final Logger logger = LoggerFactory.getLogger(CountryContextService.class);
-    private static final String API_URL = "https://restcountries.com/v3.1/alpha/UA";
+public class CountryContextService {
 
     public JsonObject getRegionalContext() {
-        try {
-            String response = sendGetRequest(API_URL);
-            JsonArray array = JsonParser.parseString(response).getAsJsonArray();
-            JsonObject data = array.get(0).getAsJsonObject();
-
-            JsonObject result = new JsonObject();
-            result.addProperty("country", "Україна");
-            result.addProperty("population", data.get("population").getAsLong());
-            result.addProperty("timezone", data.getAsJsonArray("timezones").get(0).getAsString());
-
-            return result;
-        } catch (Exception e) {
-            logger.error("Country API error: {}", e.getMessage());
-            return null;
-        }
+        JsonObject result = new JsonObject();
+        result.addProperty("country", "Україна");
+        return result;
     }
 }
