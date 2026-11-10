@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Сервіс просторового аналізу інфраструктури навколо ділянки (OSM Overpass).
@@ -33,6 +34,26 @@ public class OverpassApiService extends BaseApiService {
     private static final int RADIUS_WATER = 1500;
     private static final int RADIUS_ROAD = 1000;
     private static final int RADIUS_PROXIMITY = 100;
+
+    private static final int RADIUS_POI_AMENITY = 2000;
+    private static final int RADIUS_POI_SHOP = 1500;
+    private static final int RADIUS_POI_LEISURE = 1500;
+
+    // Значення тегів POI тримаємо константами: ними фільтрується і запит, і
+    // розбір спільної відповіді. Інакше у перелік POI потрапляли б об'єкти
+    // інфраструктурних підзапитів — наприклад amenity=crematorium, який теж
+    // має тег amenity.
+    private static final String POI_AMENITIES = "school|hospital|pharmacy|clinic|kindergarten";
+    private static final String POI_SHOPS = "supermarket|convenience";
+    private static final String POI_LEISURE = "park|garden";
+
+    /** Дані OSM змінюються днями, тож півгодини кешу нічим не ризикують. */
+    private static final long CACHE_TTL_MS = 30 * 60 * 1000L;
+    private static final int CACHE_MAX_ENTRIES = 200;
+
+    private record CacheEntry(JsonObject root, long storedAt) {}
+
+    private static final Map<String, CacheEntry> CACHE = new ConcurrentHashMap<>();
 
     /**
      * Порядок значимості водних ресурсів. drain сюди не входить навмисно:
@@ -60,10 +81,17 @@ public class OverpassApiService extends BaseApiService {
         return url != null && !url.isBlank() ? url : DEFAULT_OVERPASS_URL;
     }
 
-    public JsonObject getInfrastructureDetails(double lat, double lon) {
-        // out center tags — для кожного way повертає координати центру і теги
-        String query = String.format(Locale.US,
-                "[out:json][timeout:30];" +
+    /**
+     * Інфраструктура і POI тягнуться ОДНИМ запитом. Публічний Overpass сам
+     * повідомляє у тілі 502, що його чергу заповнено і для автоматизованого
+     * використання треба власний інстанс — тож два окремих запити означали
+     * два слоти в тій черзі, і POI-запит через це стабільно не вкладався в
+     * таймаут. Відповідь кешується, тому другий публічний метод мережу вже
+     * не торкає.
+     */
+    private String buildCombinedQuery(double lat, double lon) {
+        return String.format(Locale.US,
+                "[out:json][timeout:40];" +
                         "(" +
                         "  way[\"power\"~\"line|cable|minor_line\"](around:%d,%f,%f);" +
                         "  node[\"power\"~\"tower|pole\"](around:%d,%f,%f);" +
@@ -75,6 +103,9 @@ public class OverpassApiService extends BaseApiService {
                         "  way[\"landuse\"=\"industrial\"](around:%d,%f,%f);" +
                         "  node[\"railway\"=\"station\"](around:%d,%f,%f);" +
                         "  node[\"public_transport\"=\"station\"](around:%d,%f,%f);" +
+                        "  node[\"amenity\"~\"%s\"](around:%d,%f,%f);" +
+                        "  node[\"shop\"~\"%s\"](around:%d,%f,%f);" +
+                        "  node[\"leisure\"~\"%s\"](around:%d,%f,%f);" +
                         ");" +
                         "out geom tags;",
                 RADIUS_POWER, lat, lon,
@@ -86,19 +117,48 @@ public class OverpassApiService extends BaseApiService {
                 RADIUS_PROXIMITY, lat, lon,
                 RADIUS_PROXIMITY, lat, lon,
                 RADIUS_PROXIMITY, lat, lon,
-                RADIUS_PROXIMITY, lat, lon);
+                RADIUS_PROXIMITY, lat, lon,
+                POI_AMENITIES, RADIUS_POI_AMENITY, lat, lon,
+                POI_SHOPS, RADIUS_POI_SHOP, lat, lon,
+                POI_LEISURE, RADIUS_POI_LEISURE, lat, lon);
+    }
 
+    /**
+     * Повертає розібрану відповідь Overpass, перевикористовуючи щойно
+     * отриману. Ключ — координати, округлені до 4 знаків (~11 м): повторна
+     * генерація звіту для тієї ж ділянки сервера вже не торкається, а
+     * сусідні ділянки не ризикують отримати відповідь, зібрану навколо
+     * іншої точки.
+     */
+    private JsonObject fetchCombined(double lat, double lon) throws Exception {
+        String key = String.format(Locale.US, "%.4f,%.4f", lat, lon);
+        long now = System.currentTimeMillis();
+
+        CacheEntry cached = CACHE.get(key);
+        if (cached != null && now - cached.storedAt() < CACHE_TTL_MS) {
+            logger.info("Overpass: відповідь з кешу для {}", key);
+            return cached.root();
+        }
+
+        JsonObject root = JsonParser.parseString(query(buildCombinedQuery(lat, lon))).getAsJsonObject();
+        if (CACHE.size() >= CACHE_MAX_ENTRIES) {
+            CACHE.entrySet().removeIf(e -> now - e.getValue().storedAt() >= CACHE_TTL_MS);
+            if (CACHE.size() >= CACHE_MAX_ENTRIES) CACHE.clear();
+        }
+        CACHE.put(key, new CacheEntry(root, now));
+        return root;
+    }
+
+    public JsonObject getInfrastructureDetails(double lat, double lon) {
         try {
-            String response = query(query);
-            return processElements(JsonParser.parseString(response)
-                    .getAsJsonObject(), lat, lon);
+            return processElements(fetchCombined(lat, lon), lat, lon);
         } catch (Exception e) {
             // Раніше тут повертався fallbackResult() з road_nearby=false,
             // power_nearby=false, water_nearby=false — і звіт подавав збій
             // API як виміряну відсутність об'єктів: «доріг у радіусі 1000 м
             // не виявлено», разом зі зниженою оцінкою придатності ділянки.
             // null означає «даних немає»: усі споживачі це обробляють, а
-            // SuitabilityCalculator ще й перенормовує ваги.
+            // SuitabilityCalculator враховує такі чинники нейтрально.
             logger.error("Overpass API недоступний, інфраструктурні дані відсутні: {}", e.getMessage());
             return null;
         }
@@ -332,26 +392,17 @@ public class OverpassApiService extends BaseApiService {
     // ─── POI в радіусі 2 км ──────────────────────────────────────────────────
 
     public JsonArray getNearbyPOIs(double lat, double lon) {
-        String query = String.format(Locale.US,
-                "[out:json][timeout:15];" +
-                        "(node[\"amenity\"~\"school|hospital|pharmacy|clinic|kindergarten\"](around:2000,%f,%f);" +
-                        "node[\"shop\"~\"supermarket|convenience\"](around:1500,%f,%f);" +
-                        "node[\"leisure\"~\"park|garden\"](around:1500,%f,%f););" +
-                        "out center tags;",
-                lat, lon, lat, lon, lat, lon);
         try {
-            // Через той самий query(), що й інфраструктура: POI-запит так само
-            // отримує 502 від перевантаженого сервера, а ретраю тут не було.
-            String response = query(query);
-            JsonArray elements = JsonParser.parseString(response).getAsJsonObject()
-                    .has("elements")
-                    ? JsonParser.parseString(response).getAsJsonObject().getAsJsonArray("elements")
-                    : new JsonArray();
+            // Та сама відповідь, що й для інфраструктури — з кешу, без
+            // другого звернення до перевантаженої черги Overpass.
+            JsonObject root = fetchCombined(lat, lon);
+            JsonArray elements = root.has("elements") ? root.getAsJsonArray("elements") : new JsonArray();
 
             List<JsonObject> list = new ArrayList<>();
             for (int i = 0; i < elements.size(); i++) {
                 JsonObject el = elements.get(i).getAsJsonObject();
                 JsonObject tags = el.has("tags") ? el.getAsJsonObject("tags") : new JsonObject();
+                if (!isPoi(tags)) continue;
                 double dist = extractDistance(el, lat, lon);
                 if (dist >= Double.MAX_VALUE) continue;
 
@@ -376,6 +427,22 @@ public class OverpassApiService extends BaseApiService {
             logger.error("getNearbyPOIs error: {}", e.getMessage());
             return new JsonArray();
         }
+    }
+
+    /**
+     * Спільна відповідь містить і об'єкти інфраструктурних підзапитів, тож
+     * у перелік POI беремо лише ті значення тегів, які ми справді питали.
+     * Без цієї перевірки amenity=crematorium з санітарного підзапиту
+     * потрапляв би до POI як «Заклад».
+     */
+    private boolean isPoi(JsonObject tags) {
+        return tagMatches(tags, "amenity", POI_AMENITIES)
+                || tagMatches(tags, "shop", POI_SHOPS)
+                || tagMatches(tags, "leisure", POI_LEISURE);
+    }
+
+    private boolean tagMatches(JsonObject tags, String key, String alternatives) {
+        return tags.has(key) && tags.get(key).getAsString().matches(alternatives);
     }
 
     private String poiType(JsonObject tags) {

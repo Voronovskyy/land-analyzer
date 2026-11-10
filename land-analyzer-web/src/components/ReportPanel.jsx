@@ -209,7 +209,7 @@ export default function ReportPanel({ searchData }) {
             onChange={e => setAiEnabled(e.target.checked)}
             disabled={loading}
           />
-          Аналіз Claude AI (займає ~60 сек)
+          Аналіз AI (займає ~60 сек)
           <InfoTooltip text="Вмикає 6 аналізів від Claude AI: інфраструктура, рельєф, DEM, NDVI, ретроспектива, ухили. Кожен аналіз — окрема сторінка у PDF з текстовими висновками." />
         </label>
 
